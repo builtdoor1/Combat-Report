@@ -1,0 +1,14 @@
+{
+	"required": true,
+	"package": "combat_report.mixin",
+	"compatibilityLevel": "JAVA_21",
+	"client": [
+		"GuiMixin",
+		"LivingEntityMixin",
+		"MinecraftMixin",
+		"MultiPlayerGameModeMixin"
+	],
+	"injectors": {
+		"defaultRequire": 1
+	}
+}

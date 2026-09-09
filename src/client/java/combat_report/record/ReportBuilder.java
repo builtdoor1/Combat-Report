@@ -1,0 +1,622 @@
+package combat_report.record;
+
+import combat_report.combat.Constants;
+
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
+
+/**
+ * Renders a finished recording as one self-contained HTML page.
+ *
+ * <p>Everything is inline: the stylesheet, the charts as hand-emitted SVG, and no
+ * script at all. The file opens in a browser with no internet connection and
+ * fetches nothing, which is what makes it something you can hand to someone.
+ *
+ * <p>Game-free (see {@link ReportData}), so {@code ./gradlew reportPreview} can
+ * render one from synthetic data and the page can be checked without Minecraft.
+ *
+ * <p>A figure with no denominator prints as a dash rather than as zero. An empty
+ * recording should look empty, not terrible.
+ */
+public final class ReportBuilder {
+
+	private static final String INK = "#e8ecf1";
+	private static final String MUTED = "#93a1b0";
+	private static final String LINE = "#2b3440";
+	private static final String PANEL = "#161c24";
+	private static final String BG = "#0e1319";
+	private static final String GOOD = "#4ec9a0";
+	private static final String BAD = "#e06a6a";
+	private static final String ACCENT = "#6db3f2";
+
+	// One colour per hit type, in the order the spread bar draws them.
+	private static final String C_PICK = "#8b7ec8";
+	private static final String C_KB = "#e0a45e";
+	private static final String C_CRIT = "#e06a6a";
+	private static final String C_SWEEP = "#4ec9a0";
+	private static final String C_PLAIN = "#5d7a94";
+
+	private ReportBuilder() {
+	}
+
+	public static String build(ReportData d) {
+		ReportData.Summary s = d.summary == null ? new ReportData.Summary() : d.summary;
+		StringBuilder h = new StringBuilder(24576);
+
+		h.append("<!DOCTYPE html><html lang=\"en\"><head><meta charset=\"utf-8\">");
+		h.append("<meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">");
+		h.append("<title>Combat Report ").append(esc(d.startUtc)).append("</title>");
+		h.append("<style>").append(css()).append("</style></head><body><main>");
+
+		hero(h, d, s);
+
+		if (d.fights == 0) {
+			h.append("<div class=\"empty\">No fights were detected in this recording. ")
+					.append("A fight starts when you swing at another player or take a hit from one.</div>");
+		}
+
+		hits(h, d, s);
+		combos(h, s);
+		jumps(h, d, s);
+		trades(h, d, s);
+
+		h.append("<footer>Combat Report ").append(esc(d.modVersion))
+				.append(" &middot; Minecraft ").append(esc(d.minecraftVersion))
+				.append(" &middot; measured on the client, so reach and timing are what your game saw, ")
+				.append("not what the server did.</footer>");
+
+		h.append("</main></body></html>");
+		return h.toString();
+	}
+
+	// ---- header -------------------------------------------------------------
+
+	private static void hero(StringBuilder h, ReportData d, ReportData.Summary s) {
+		long fightSec = d.fightMs / 1000L;
+		long totalSec = Math.max(0L, (d.endEpochMs - d.startEpochMs) / 1000L);
+
+		h.append("<header class=\"hero\"><h1>Combat Report</h1>");
+		h.append("<p class=\"who\">").append(esc(d.playerName.isEmpty() ? "Unknown player" : d.playerName));
+
+		if (!d.opponents.isEmpty()) {
+			h.append(" <span class=\"vs\">vs</span> ").append(esc(String.join(", ", d.opponents)));
+		}
+
+		h.append("</p><div class=\"chips\">");
+		chip(h, esc(d.startUtc) + " UTC");
+		chip(h, d.fights + (d.fights == 1 ? " fight" : " fights"));
+		chip(h, duration(fightSec) + " of combat");
+		chip(h, duration(totalSec) + " recorded");
+
+		if (d.pingMs > 0.0) {
+			chip(h, Math.round(d.pingMs) + " ms ping");
+		}
+
+		h.append("</div>");
+		h.append("<p class=\"sub\">Only time inside a fight is measured. ")
+				.append("A fight ends after ").append(Constants.FIGHT_IDLE_MS / 1000L)
+				.append(" seconds with no hits either way, so walking between fights is not counted.</p>");
+		h.append("</header>");
+	}
+
+	private static void chip(StringBuilder h, String text) {
+		h.append("<span class=\"chip\">").append(text).append("</span>");
+	}
+
+	// ---- section 1: hits ----------------------------------------------------
+
+	private static void hits(StringBuilder h, ReportData d, ReportData.Summary s) {
+		h.append("<section><h2>1 &middot; Hits</h2>");
+
+		h.append("<div class=\"cards\">");
+		card(h, "Accuracy", pct(s.accuracyPct, s.swings), s.landed + " landed of " + s.swings + " swung");
+		card(h, "Average range", s.landed > 0 ? band(s.rangeLo, s.rangeHi) : "&mdash;",
+				s.landed > 0 ? num(s.avgReach, 2) + " blocks, max " + num(s.maxReach, 2) : "no landed hits");
+		card(h, "3 block accuracy", pct(s.threeBlockPct, s.landed),
+				s.threeBlockHits + (s.threeBlockHits == 1 ? " landed hit" : " landed hits")
+						+ " past " + num(Constants.THREE_BLOCK_THRESHOLD, 1) + " blocks");
+		card(h, "Misses", String.valueOf(s.missed), "swings at an opponent that did not connect");
+		h.append("</div>");
+
+		h.append("<h3>Spread</h3>");
+		h.append("<p class=\"sub\">What kind of hit each landed swing was. ")
+				.append("These five are how vanilla itself decides an attack, so every landed hit is exactly one of them.</p>");
+		spreadBar(h, s);
+
+		if (s.pick > 0) {
+			h.append("<p class=\"sub\">Pick hits were swung at ")
+					.append(Math.round(s.avgPickCharge * 100.0))
+					.append("% charge on average. Below 90% is what makes a hit a pick hit.</p>");
+		}
+
+		if (s.swings > 0) {
+			h.append("<h3>Range of every swing</h3>");
+			reachChart(h, d);
+			h.append("<p class=\"sub\">Green landed, red missed. The dashed line is vanilla melee range, 3.0 blocks. ")
+					.append("Measured eye to the nearest point of the hitbox, which is what the game itself checks.</p>");
+		}
+
+		h.append("</section>");
+	}
+
+	private static void spreadBar(StringBuilder h, ReportData.Summary s) {
+		if (s.landed <= 0) {
+			h.append("<p class=\"none\">No landed hits to break down.</p>");
+			return;
+		}
+
+		record Slice(String label, int count, double pct, String colour, String note) {
+		}
+
+		List<Slice> slices = new ArrayList<>();
+		slices.add(new Slice("Pick", s.pick, s.pickPct, C_PICK, "swung before the cooldown finished"));
+		slices.add(new Slice("KB", s.kb, s.kbPct, C_KB, "sprint hit, full knockback"));
+		slices.add(new Slice("Crit", s.crit, s.critPct, C_CRIT, "falling and not sprinting"));
+		slices.add(new Slice("Sweep", s.sweep, s.sweepPct, C_SWEEP, "charged sword swung standing still"));
+		slices.add(new Slice("Plain", s.plain, s.plainPct, C_PLAIN, "charged, but none of the above"));
+
+		h.append("<div class=\"bar\">");
+
+		for (Slice sl : slices) {
+			if (sl.count() <= 0) {
+				continue;
+			}
+
+			h.append("<div class=\"seg\" style=\"width:").append(num(sl.pct(), 3))
+					.append("%;background:").append(sl.colour()).append("\" title=\"")
+					.append(sl.label()).append(": ").append(sl.count()).append(" hits, ")
+					.append(num(sl.pct(), 1)).append("%\"></div>");
+		}
+
+		h.append("</div><div class=\"legend\">");
+
+		for (Slice sl : slices) {
+			h.append("<div class=\"lg\"><span class=\"sw\" style=\"background:").append(sl.colour())
+					.append("\"></span><b>").append(sl.label()).append("</b> ")
+					.append(num(sl.pct(), 1)).append("% <span class=\"n\">(")
+					.append(sl.count()).append(")</span><em>").append(sl.note()).append("</em></div>");
+		}
+
+		h.append("</div>");
+	}
+
+	private static void reachChart(StringBuilder h, ReportData d) {
+		int w = 1200;
+		int hgt = 260;
+		int ml = 46;
+		int mr = 14;
+		int mt = 16;
+		int mb = 26;
+		int pw = w - ml - mr;
+		int ph = hgt - mt - mb;
+
+		double max = 3.6;
+
+		for (ReportData.Swing sw : d.swings) {
+			max = Math.max(max, sw.reach + 0.2);
+		}
+
+		h.append("<div class=\"chartwrap\">");
+		svgOpen(h, w, hgt);
+		axes(h, ml, mt, pw, ph);
+
+		// Y gridlines every half block.
+		for (double v = 0.0; v <= max; v += 0.5) {
+			int y = (int) Math.round(mt + ph - v / max * ph);
+			h.append("<line x1=\"").append(ml).append("\" y1=\"").append(y)
+					.append("\" x2=\"").append(ml + pw).append("\" y2=\"").append(y)
+					.append("\" stroke=\"").append(LINE).append("\" stroke-width=\"1\"/>");
+			h.append("<text x=\"").append(ml - 8).append("\" y=\"").append(y + 4)
+					.append("\" class=\"ax\" text-anchor=\"end\">").append(num(v, 1)).append("</text>");
+		}
+
+		// Vanilla melee range.
+		int limitY = (int) Math.round(mt + ph - 3.0 / max * ph);
+		h.append("<line x1=\"").append(ml).append("\" y1=\"").append(limitY)
+				.append("\" x2=\"").append(ml + pw).append("\" y2=\"").append(limitY)
+				.append("\" stroke=\"").append(MUTED)
+				.append("\" stroke-width=\"1.5\" stroke-dasharray=\"5 4\"/>");
+		h.append("<text x=\"").append(ml + pw - 4).append("\" y=\"").append(limitY - 6)
+				.append("\" class=\"ax\" text-anchor=\"end\">vanilla 3.0</text>");
+
+		int n = d.swings.size();
+
+		for (int i = 0; i < n; i++) {
+			ReportData.Swing sw = d.swings.get(i);
+			double fx = n <= 1 ? 0.5 : (double) i / (n - 1);
+			int x = (int) Math.round(ml + fx * pw);
+			int y = (int) Math.round(mt + ph - sw.reach / max * ph);
+			String colour = sw.landed ? GOOD : BAD;
+
+			h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
+					.append("\" r=\"3\" fill=\"").append(colour).append("\" fill-opacity=\"0.85\"><title>")
+					.append(sw.landed ? "landed" : "missed").append(" at ").append(num(sw.reach, 2))
+					.append(" blocks").append(sw.type == null ? "" : " (" + label(sw.type) + ")")
+					.append("</title></circle>");
+		}
+
+		h.append("</svg></div>");
+	}
+
+	// ---- section 2: combos --------------------------------------------------
+
+	private static void combos(StringBuilder h, ReportData.Summary s) {
+		h.append("<section><h2>2 &middot; Combos</h2>");
+		h.append("<p class=\"sub\">A combo is ").append(Constants.COMBO_MIN_HITS)
+				.append(" or more hits on the same opponent with no gap longer than ")
+				.append(Constants.COMBO_GAP_MS).append(" ms. ")
+				.append("Isolated single hits are counted separately rather than averaged in as one-hit combos.</p>");
+
+		h.append("<div class=\"cards\">");
+		card(h, "Average combo", s.combos > 0 ? num(s.avgComboHits, 2) + " hits" : "&mdash;",
+				s.combos + " combos, " + s.comboHits + " hits, " + s.singleHits + " lone hits");
+		card(h, "Average received combo", s.combosTaken > 0 ? num(s.avgComboHitsTaken, 2) + " hits" : "&mdash;",
+				s.combosTaken + " combos taken, " + s.singleHitsTaken + " lone hits taken");
+		card(h, "Combo frequency", s.comboGaps > 0 ? num(s.comboFrequencyMs / 1000.0, 2) + " s" : "&mdash;",
+				s.comboGaps > 0 ? "average gap across " + s.comboGaps + " gaps, within a fight" : "needs two combos in one fight");
+		h.append("</div>");
+
+		if (s.combos > 0 || s.combosTaken > 0) {
+			h.append("<h3>Yours against theirs</h3>");
+			compareBars(h,
+					"Hits per combo", s.avgComboHits, s.combos > 0,
+					"Hits per combo taken", s.avgComboHitsTaken, s.combosTaken > 0);
+		}
+
+		h.append("</section>");
+	}
+
+	private static void compareBars(StringBuilder h, String labelA, double a, boolean hasA,
+			String labelB, double b, boolean hasB) {
+		double max = Math.max(1.0, Math.max(hasA ? a : 0.0, hasB ? b : 0.0));
+
+		h.append("<div class=\"vs2\">");
+		compareRow(h, labelA, a, hasA, max, GOOD);
+		compareRow(h, labelB, b, hasB, max, BAD);
+		h.append("</div>");
+	}
+
+	private static void compareRow(StringBuilder h, String label, double value, boolean has, double max, String colour) {
+		h.append("<div class=\"vsrow\"><span class=\"vslab\">").append(label).append("</span>");
+		h.append("<span class=\"vstrack\"><span class=\"vsfill\" style=\"width:")
+				.append(has ? num(100.0 * value / max, 2) : "0")
+				.append("%;background:").append(colour).append("\"></span></span>");
+		h.append("<span class=\"vsval\">").append(has ? num(value, 2) : "&mdash;").append("</span></div>");
+	}
+
+	// ---- section 3: jumps ---------------------------------------------------
+
+	private static void jumps(StringBuilder h, ReportData d, ReportData.Summary s) {
+		h.append("<section><h2>3 &middot; Jumps</h2>");
+
+		h.append("<div class=\"cards\">");
+		card(h, "Jump reset accuracy", pct(s.resetPct, s.resetAttempts),
+				s.resets + " of " + s.resetAttempts + " attempts inside "
+						+ Constants.JUMP_SUCCESS_MIN_MS + "-" + Constants.JUMP_SUCCESS_MAX_MS + " ms");
+		card(h, "Average timing", s.resetAttempts > 0 ? Math.round(s.avgResetDeltaMs) + " ms" : "&mdash;",
+				"after the hit; negative means you jumped early");
+		card(h, "Jump punishment", pct(s.deflectedPct, s.jumps),
+				s.deflected + " of " + s.jumps + " jumps were hit before landing");
+		h.append("</div>");
+
+		h.append("<p class=\"sub\">A jump within ").append(Constants.JUMP_ATTEMPT_MS)
+				.append(" ms of a hit taken counts as a reset attempt. Jumps further from a hit are not scored ")
+				.append("at all, because a jump a fifth of a second either side of taking damage is just a jump ")
+				.append("that happened nearby. A jump is punished if the opponent lands a hit on you before your ")
+				.append("feet touch the ground again.</p>");
+
+		if (s.resetAttempts > 0) {
+			h.append("<h3>Reset timing</h3>");
+			jumpChart(h, d);
+			h.append("<p class=\"sub\">Each attempt, plotted by how long after the hit you jumped. ")
+					.append("The green band is the window that cancels the knockback. ")
+					.append("Points left of zero are jumps thrown before the hit landed.</p>");
+		}
+
+		h.append("</section>");
+	}
+
+	private static void jumpChart(StringBuilder h, ReportData d) {
+		int w = 1200;
+		int hgt = 170;
+		int ml = 46;
+		int mr = 14;
+		int mt = 18;
+		int mb = 30;
+		int pw = w - ml - mr;
+		int ph = hgt - mt - mb;
+
+		long span = Constants.JUMP_ATTEMPT_MS;
+
+		h.append("<div class=\"chartwrap\">");
+		svgOpen(h, w, hgt);
+
+		// Success window band.
+		int bandX0 = msToX(Constants.JUMP_SUCCESS_MIN_MS, span, ml, pw);
+		int bandX1 = msToX(Constants.JUMP_SUCCESS_MAX_MS, span, ml, pw);
+		h.append("<rect x=\"").append(bandX0).append("\" y=\"").append(mt)
+				.append("\" width=\"").append(Math.max(1, bandX1 - bandX0)).append("\" height=\"").append(ph)
+				.append("\" fill=\"").append(GOOD).append("\" fill-opacity=\"0.14\"/>");
+
+		// Axis ticks every 50 ms.
+		for (long v = -span; v <= span; v += 50L) {
+			int x = msToX(v, span, ml, pw);
+			h.append("<line x1=\"").append(x).append("\" y1=\"").append(mt)
+					.append("\" x2=\"").append(x).append("\" y2=\"").append(mt + ph)
+					.append("\" stroke=\"").append(LINE).append("\" stroke-width=\"1\"/>");
+			h.append("<text x=\"").append(x).append("\" y=\"").append(mt + ph + 18)
+					.append("\" class=\"ax\" text-anchor=\"middle\">").append(v).append("</text>");
+		}
+
+		List<ReportData.Jump> attempts = new ArrayList<>();
+
+		for (ReportData.Jump j : d.jumps) {
+			if (j.attempt) {
+				attempts.add(j);
+			}
+		}
+
+		int n = attempts.size();
+
+		for (int i = 0; i < n; i++) {
+			ReportData.Jump j = attempts.get(i);
+			int x = msToX(j.deltaMs, span, ml, pw);
+			double fy = n <= 1 ? 0.5 : (double) i / (n - 1);
+			int y = (int) Math.round(mt + 8 + fy * (ph - 16));
+
+			h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
+					.append("\" r=\"4\" fill=\"").append(j.reset ? GOOD : BAD)
+					.append("\" fill-opacity=\"0.85\"><title>").append(j.deltaMs).append(" ms - ")
+					.append(j.reset ? "reset" : (j.deltaMs < 0 ? "too early" : "too late"))
+					.append("</title></circle>");
+		}
+
+		h.append("</svg></div>");
+	}
+
+	private static int msToX(long ms, long span, int ml, int pw) {
+		double f = (ms + (double) span) / (2.0 * span);
+		return (int) Math.round(ml + Math.max(0.0, Math.min(1.0, f)) * pw);
+	}
+
+	// ---- section 4: momentum and trades -------------------------------------
+
+	private static void trades(StringBuilder h, ReportData d, ReportData.Summary s) {
+		h.append("<section><h2>4 &middot; Momentum and trades</h2>");
+		h.append("<p class=\"sub\">A trade is one hit each, landed within ")
+				.append(Constants.TRADE_WINDOW_MS).append(" ms of the other. ")
+				.append("Momentum is not speed: it is how fast you were moving along the line between you and ")
+				.append("them, sampled ").append(Constants.MOMENTUM_SAMPLE_TICKS * 50)
+				.append(" ms after the exchange. Positive means you came out of it pushing forward.</p>");
+
+		h.append("<div class=\"cards\">");
+		card(h, "Pushing forward", pct(s.forwardPct, s.tradesWithMomentum),
+				s.forwardTrades + " of " + s.tradesWithMomentum + " trades left you moving toward them");
+		card(h, "Average momentum",
+				s.tradesWithMomentum > 0 ? signed(s.avgMomentumPct) : "&mdash;",
+				"of sprint speed, along the line to your opponent");
+		card(h, "Damage wins",
+				s.damageKnown ? pct(s.damageWinPct, s.damageWins + s.damageLosses) : "&mdash;",
+				s.damageKnown
+						? s.damageWins + " won, " + s.damageLosses + " lost, " + s.damageDraws + " even"
+						: (d.opponentHealthSeen ? "no decided trades" : "this server does not share opponent health"));
+		card(h, "Trades", String.valueOf(s.trades), "exchanges where you both connected");
+		h.append("</div>");
+
+		if (s.tradesWithMomentum > 0) {
+			h.append("<h3>Momentum leaving each trade</h3>");
+			momentumChart(h, d);
+			h.append("<p class=\"sub\">Above the line is forward, below it is backing off. ")
+					.append("Values past 100% are knockback carrying you faster than you can run.</p>");
+		}
+
+		if (!d.opponentHealthSeen && s.trades > 0) {
+			h.append("<p class=\"note\">Damage figures are left out because your opponent's health never changed ")
+					.append("on this client. Some servers do not send other players' health, and a zero there would ")
+					.append("read as you doing no damage rather than as nothing being measured.</p>");
+		}
+
+		h.append("</section>");
+	}
+
+	private static void momentumChart(StringBuilder h, ReportData d) {
+		int w = 1200;
+		int hgt = 260;
+		int ml = 52;
+		int mr = 14;
+		int mt = 16;
+		int mb = 24;
+		int pw = w - ml - mr;
+		int ph = hgt - mt - mb;
+
+		List<ReportData.Trade> shown = new ArrayList<>();
+
+		for (ReportData.Trade t : d.trades) {
+			if (t.momentumKnown) {
+				shown.add(t);
+			}
+		}
+
+		double max = 100.0;
+
+		for (ReportData.Trade t : shown) {
+			max = Math.max(max, Math.abs(t.momentumPct));
+		}
+
+		max = Math.ceil(max / 50.0) * 50.0;
+		int zeroY = mt + ph / 2;
+
+		h.append("<div class=\"chartwrap\">");
+		svgOpen(h, w, hgt);
+
+		for (double v = -max; v <= max + 0.001; v += max / 2.0) {
+			int y = (int) Math.round(zeroY - v / max * (ph / 2.0));
+			h.append("<line x1=\"").append(ml).append("\" y1=\"").append(y)
+					.append("\" x2=\"").append(ml + pw).append("\" y2=\"").append(y)
+					.append("\" stroke=\"").append(LINE).append("\" stroke-width=\"1\"/>");
+			h.append("<text x=\"").append(ml - 8).append("\" y=\"").append(y + 4)
+					.append("\" class=\"ax\" text-anchor=\"end\">").append(Math.round(v)).append("%</text>");
+		}
+
+		h.append("<line x1=\"").append(ml).append("\" y1=\"").append(zeroY)
+				.append("\" x2=\"").append(ml + pw).append("\" y2=\"").append(zeroY)
+				.append("\" stroke=\"").append(MUTED).append("\" stroke-width=\"1.5\"/>");
+
+		int n = shown.size();
+		double slot = (double) pw / Math.max(1, n);
+		double barW = Math.max(2.0, Math.min(18.0, slot * 0.6));
+
+		for (int i = 0; i < n; i++) {
+			ReportData.Trade t = shown.get(i);
+			double cx = ml + slot * (i + 0.5);
+			double clamped = Math.max(-max, Math.min(max, t.momentumPct));
+			double hh = Math.abs(clamped) / max * (ph / 2.0);
+			double y = clamped >= 0 ? zeroY - hh : zeroY;
+
+			h.append("<rect x=\"").append(num(cx - barW / 2.0, 2)).append("\" y=\"").append(num(y, 2))
+					.append("\" width=\"").append(num(barW, 2)).append("\" height=\"").append(num(Math.max(1.0, hh), 2))
+					.append("\" fill=\"").append(clamped >= 0 ? GOOD : BAD).append("\" fill-opacity=\"0.85\"><title>")
+					.append(signed(t.momentumPct)).append(" of sprint speed")
+					.append("</title></rect>");
+		}
+
+		h.append("</svg></div>");
+	}
+
+	// ---- small pieces -------------------------------------------------------
+
+	private static void card(StringBuilder h, String label, String value, String note) {
+		h.append("<div class=\"card\"><div class=\"lab\">").append(label)
+				.append("</div><div class=\"val\">").append(value)
+				.append("</div><div class=\"note\">").append(note).append("</div></div>");
+	}
+
+	private static void svgOpen(StringBuilder h, int w, int hgt) {
+		// No preserveAspectRatio override: stretching the viewBox non-uniformly would
+		// squash the axis text and turn the data points into ellipses.
+		h.append("<svg class=\"chart\" viewBox=\"0 0 ").append(w).append(" ").append(hgt)
+				.append("\" width=\"100%\" xmlns=\"http://www.w3.org/2000/svg\">");
+	}
+
+	private static void axes(StringBuilder h, int ml, int mt, int pw, int ph) {
+		h.append("<line x1=\"").append(ml).append("\" y1=\"").append(mt + ph)
+				.append("\" x2=\"").append(ml + pw).append("\" y2=\"").append(mt + ph)
+				.append("\" stroke=\"").append(LINE).append("\" stroke-width=\"1\"/>");
+	}
+
+	private static String label(String typeName) {
+		return switch (typeName) {
+			case "PICK" -> "pick";
+			case "KB" -> "kb";
+			case "CRIT" -> "crit";
+			case "SWEEP" -> "sweep";
+			default -> "plain";
+		};
+	}
+
+	private static String pct(double value, int denominator) {
+		return denominator <= 0 ? "&mdash;" : num(value, 1) + "%";
+	}
+
+	private static String signed(double value) {
+		String sign = value > 0.0 ? "+" : "";
+		return sign + num(value, 1) + "%";
+	}
+
+	private static String band(double lo, double hi) {
+		return num(lo, 1) + "&ndash;" + num(hi, 1);
+	}
+
+	private static String num(double v, int places) {
+		return String.format(Locale.ROOT, "%." + places + "f", v);
+	}
+
+	private static String duration(long seconds) {
+		long m = seconds / 60L;
+		long s = seconds % 60L;
+		return m + "m " + s + "s";
+	}
+
+	private static String esc(String raw) {
+		if (raw == null) {
+			return "";
+		}
+
+		StringBuilder out = new StringBuilder(raw.length() + 8);
+
+		for (int i = 0; i < raw.length(); i++) {
+			char c = raw.charAt(i);
+
+			switch (c) {
+				case '&' -> out.append("&amp;");
+				case '<' -> out.append("&lt;");
+				case '>' -> out.append("&gt;");
+				case '"' -> out.append("&quot;");
+				default -> out.append(c);
+			}
+		}
+
+		return out.toString();
+	}
+
+	private static String css() {
+		return """
+				*{box-sizing:border-box}
+				body{margin:0;background:%BG%;color:%INK%;
+				font:15px/1.55 system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+				main{max-width:1280px;margin:0 auto;padding:32px 20px 64px}
+				h1{font-size:26px;margin:0 0 6px;letter-spacing:-.01em}
+				h2{font-size:19px;margin:0 0 4px;letter-spacing:-.01em}
+				h3{font-size:14px;margin:26px 0 10px;color:%MUTED%;font-weight:600;
+				text-transform:uppercase;letter-spacing:.06em}
+				.hero{padding-bottom:22px;border-bottom:1px solid %LINE%;margin-bottom:8px}
+				.who{margin:0 0 12px;font-size:17px;color:%INK%}
+				.vs{color:%MUTED%;font-style:italic;padding:0 2px}
+				.chips{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:12px}
+				.chip{background:%PANEL%;border:1px solid %LINE%;border-radius:999px;
+				padding:4px 12px;font-size:12.5px;color:%MUTED%}
+				section{padding:26px 0;border-bottom:1px solid %LINE%}
+				section:last-of-type{border-bottom:none}
+				.sub{color:%MUTED%;font-size:13.5px;margin:6px 0 0;max-width:78ch}
+				.none{color:%MUTED%;font-size:13.5px;font-style:italic}
+				.note{color:%MUTED%;font-size:13px;margin-top:14px;padding:10px 14px;
+				background:%PANEL%;border-left:2px solid %ACCENT%;border-radius:0 6px 6px 0;max-width:78ch}
+				.empty{margin:18px 0;padding:14px 16px;background:%PANEL%;border:1px solid %LINE%;
+				border-radius:8px;color:%MUTED%}
+				.cards{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));
+				gap:12px;margin:16px 0 4px}
+				.card{background:%PANEL%;border:1px solid %LINE%;border-radius:10px;padding:14px 16px}
+				.card .lab{font-size:12px;color:%MUTED%;text-transform:uppercase;letter-spacing:.06em}
+				.card .val{font-size:27px;font-weight:600;margin:5px 0 4px;letter-spacing:-.02em}
+				.card .note{font-size:12.5px;color:%MUTED%;background:none;border:none;padding:0;margin:0}
+				.bar{display:flex;height:26px;border-radius:6px;overflow:hidden;
+				background:%PANEL%;border:1px solid %LINE%;margin:14px 0 12px}
+				.seg{height:100%}
+				.legend{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:6px 18px}
+				.lg{font-size:13px;color:%INK%;display:flex;align-items:baseline;gap:7px;flex-wrap:wrap}
+				.lg .n{color:%MUTED%}
+				.lg em{color:%MUTED%;font-style:normal;font-size:12.5px;flex-basis:100%;
+				margin-left:17px;margin-top:-3px}
+				.sw{width:10px;height:10px;border-radius:3px;flex:none;transform:translateY(1px)}
+				.chartwrap{margin:12px 0 4px;overflow-x:auto}
+				svg.chart{display:block;background:%PANEL%;border:1px solid %LINE%;border-radius:10px}
+				text.ax{fill:%MUTED%;font-size:11px;font-family:system-ui,sans-serif}
+				.vs2{margin:12px 0}
+				.vsrow{display:flex;align-items:center;gap:12px;margin:8px 0}
+				.vslab{width:190px;flex:none;font-size:13px;color:%MUTED%}
+				.vstrack{flex:1;height:16px;background:%PANEL%;border:1px solid %LINE%;
+				border-radius:8px;overflow:hidden}
+				.vsfill{display:block;height:100%}
+				.vsval{width:52px;flex:none;text-align:right;font-size:14px;font-weight:600}
+				footer{color:%MUTED%;font-size:12.5px;margin-top:30px;max-width:78ch}
+				@media(max-width:720px){svg.chart{min-width:760px}.vslab{width:120px}}
+				"""
+				.replace("%BG%", BG)
+				.replace("%INK%", INK)
+				.replace("%MUTED%", MUTED)
+				.replace("%LINE%", LINE)
+				.replace("%PANEL%", PANEL)
+				.replace("%ACCENT%", ACCENT);
+	}
+}

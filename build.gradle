@@ -1,0 +1,102 @@
+plugins {
+	id 'net.fabricmc.fabric-loom-remap' version "${loom_version}"
+	id 'maven-publish'
+}
+
+version = "${project.mod_version}+${project.minecraft_version}"
+group = project.maven_group
+
+base {
+	archivesName = 'combat-report'
+}
+
+// The jar carries both versions: combat-report-1.0.0+1.21.11.jar. The mod version
+// says what changed, the Minecraft version says whether the file will even load,
+// and someone downloading one needs both to pick the right file.
+
+loom {
+	splitEnvironmentSourceSets()
+
+	mods {
+		"combat_report" {
+			sourceSet sourceSets.main
+			sourceSet sourceSets.client
+		}
+	}
+
+	// ./gradlew runClient -PmixinDebug writes every patched class to run/.mixin.out.
+	if (project.hasProperty('mixinDebug')) {
+		runs.configureEach {
+			vmArg '-Dmixin.debug=true'
+			vmArg '-Dmixin.debug.verbose=true'
+		}
+	}
+}
+
+repositories {
+	maven {
+		name = 'Terraformers'
+		url = 'https://maven.terraformersmc.com/releases/'
+	}
+}
+
+dependencies {
+	minecraft "com.mojang:minecraft:${project.minecraft_version}"
+	mappings loom.officialMojangMappings()
+	modImplementation "net.fabricmc:fabric-loader:${project.loader_version}"
+	modImplementation "net.fabricmc.fabric-api:fabric-api:${project.fabric_api_version}"
+	modImplementation "com.terraformersmc:modmenu:${project.modmenu_version}"
+}
+
+processResources {
+	inputs.property "version", project.version
+	inputs.property "minecraft_version", project.minecraft_version
+	inputs.property "loader_version", project.loader_version
+
+	filesMatching("fabric.mod.json") {
+		expand "version": project.version,
+				"minecraft_version": project.minecraft_version,
+				"loader_version": project.loader_version
+	}
+}
+
+tasks.withType(JavaCompile).configureEach {
+	it.options.release = 21
+}
+
+java {
+	withSourcesJar()
+
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+jar {
+	from("LICENSE") {
+		rename { "${it}_${project.base.archivesName.get()}" }
+	}
+}
+
+// Renders a report from synthetic data straight to build/preview, so the HTML and
+// every statistic in it can be checked without launching Minecraft. Everything
+// downstream of ReportData is deliberately game-free, which is what makes this work.
+tasks.register('reportPreview', JavaExec) {
+	group = 'verification'
+	description = 'Builds a sample HTML report from synthetic data into build/preview.'
+	classpath = sourceSets.client.runtimeClasspath
+	mainClass = 'combat_report.record.ReportPreview'
+	args project.findProperty('previewOut') ?: "${layout.buildDirectory.get()}/preview"
+}
+
+publishing {
+	publications {
+		create("mavenJava", MavenPublication) {
+			artifactId = project.base.archivesName.get()
+			from components.java
+		}
+	}
+
+	repositories {
+	}
+}

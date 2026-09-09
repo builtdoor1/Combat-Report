@@ -1,0 +1,41 @@
+{
+	"schemaVersion": 1,
+	"id": "combat_report",
+	"version": "${version}",
+	"name": "Combat Report",
+	"description": "Client-side PvP recorder that measures your hits, combos, jumps and trades during fights and writes them up as a report. Purely observational - it never modifies game physics or mechanics.",
+	"authors": [
+		"builtdoor"
+	],
+	"contact": {
+		"homepage": "https://github.com/builtdoor1/Combat-Report",
+		"sources": "https://github.com/builtdoor1/Combat-Report",
+		"issues": "https://github.com/builtdoor1/Combat-Report/issues"
+	},
+	"license": "MIT",
+	"icon": "assets/combat_report/icon.png",
+	"environment": "client",
+	"entrypoints": {
+		"client": [
+			"combat_report.CombatReportClient"
+		],
+		"modmenu": [
+			"combat_report.integration.ModMenuIntegration"
+		]
+	},
+	"mixins": [
+		{
+			"config": "combat_report.client.mixins.json",
+			"environment": "client"
+		}
+	],
+	"depends": {
+		"fabricloader": ">=${loader_version}",
+		"minecraft": "${minecraft_version}",
+		"java": ">=21",
+		"fabric-api": "*"
+	},
+	"suggests": {
+		"modmenu": "*"
+	}
+}
