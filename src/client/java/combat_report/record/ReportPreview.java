@@ -139,6 +139,9 @@ public final class ReportPreview {
 			t.taken = 3.0 + rng.nextDouble() * 4.0;
 			t.momentumKnown = true;
 			t.momentumPct = rng.nextGaussian() * 55.0 + 18.0;
+			// One trade in nine has no observed opponent health drop, so the preview
+			// exercises the path where a trade is excluded from the win rate.
+			t.damageKnown = i % 9 != 0;
 			t.opponent = rng.nextInt(2);
 			d.trades.add(t);
 		}
@@ -183,8 +186,8 @@ public final class ReportPreview {
 			failures.add("more resets than attempts");
 		}
 
-		if (s.damageWins + s.damageLosses + s.damageDraws != s.trades) {
-			failures.add("trade outcomes do not add up to the trade count");
+		if (s.damageWins + s.damageLosses + s.damageDraws > s.trades) {
+			failures.add("more scored trade outcomes than trades");
 		}
 
 		if (s.forwardTrades > s.tradesWithMomentum) {
@@ -226,11 +229,13 @@ public final class ReportPreview {
 		d.jumps.add(jump(1_000L, true, 150L, false, false));
 		d.jumps.add(jump(2_000L, false, 0L, false, true));
 
-		// Three trades: one won, one lost, one even. The even one is excluded, so the
-		// win rate is 1 of 2 decided, not 1 of 3.
+		// Four trades: one won, one lost, one even, and one where the opponent was
+		// never seen to lose health. The even one and the unmeasured one are both
+		// excluded, so the win rate is 1 of 2 decided, not 1 of 4.
 		d.trades.add(trade(0L, 6.0, 3.0, 40.0));
 		d.trades.add(trade(1_000L, 2.0, 5.0, -20.0));
 		d.trades.add(trade(2_000L, 4.0, 4.0, 10.0));
+		d.trades.add(trade(3_000L, 0.0, 5.0, -30.0));
 
 		ReportStats.summarise(d);
 		ReportData.Summary s = d.summary;
@@ -256,14 +261,16 @@ public final class ReportPreview {
 		expect(failures, "average reset timing", 95.0, s.avgResetDeltaMs);
 		expect(failures, "jump punishment", 100.0 / 3.0, s.deflectedPct);
 
-		expect(failures, "trades", 3.0, s.trades);
+		expect(failures, "trades", 4.0, s.trades);
 		expect(failures, "forward trades", 2.0, s.forwardTrades);
-		expect(failures, "forward share", 100.0 * 2.0 / 3.0, s.forwardPct);
-		expect(failures, "average momentum", 10.0, s.avgMomentumPct);
+		expect(failures, "forward share", 50.0, s.forwardPct);
+		expect(failures, "average momentum", 0.0, s.avgMomentumPct);
 		expect(failures, "damage wins", 1.0, s.damageWins);
 		expect(failures, "damage losses", 1.0, s.damageLosses);
 		expect(failures, "damage draws", 1.0, s.damageDraws);
 		expect(failures, "damage win rate", 50.0, s.damageWinPct);
+		expect(failures, "unmeasured trade excluded",
+				3.0, s.damageWins + s.damageLosses + s.damageDraws);
 	}
 
 	private static ReportData.Swing swing(long t, boolean landed, double reach, String type) {
@@ -301,6 +308,7 @@ public final class ReportPreview {
 		tr.taken = taken;
 		tr.momentumPct = momentumPct;
 		tr.momentumKnown = true;
+		tr.damageKnown = dealt > 0.0;
 		return tr;
 	}
 

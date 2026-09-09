@@ -204,7 +204,11 @@ public final class ReportStats {
 				}
 			}
 
-			if (d.opponentHealthSeen) {
+			// Only trades where the opponent was actually seen to lose health are
+			// scored. A trade where the drop never arrived is not a loss, it is not a
+			// measurement, and treating the two alike turns the win rate into a
+			// function of ping.
+			if (t.damageKnown) {
 				if (t.dealt > t.taken) {
 					s.damageWins++;
 				} else if (t.dealt < t.taken) {
@@ -225,7 +229,7 @@ public final class ReportStats {
 		// the trades that were decided" is a claim the data supports; folding draws
 		// into the denominator makes the figure move when nothing changed.
 		int decided = s.damageWins + s.damageLosses;
-		s.damageKnown = d.opponentHealthSeen && decided > 0;
+		s.damageKnown = decided > 0;
 
 		if (s.damageKnown) {
 			s.damageWinPct = pct(s.damageWins, decided);

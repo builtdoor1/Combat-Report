@@ -49,6 +49,12 @@ public final class ReportData {
 	 */
 	public boolean opponentHealthSeen;
 
+	/**
+	 * Attacks thrown with a piercing weapon (the 1.21.11 spears), which are counted
+	 * but not measured. See {@code FightWatcher.onSwingBegin} for why.
+	 */
+	public int piercingSwings;
+
 	public List<Swing> swings = new ArrayList<>();
 	public List<Combo> combosDealt = new ArrayList<>();
 	public List<Combo> combosTaken = new ArrayList<>();
@@ -104,6 +110,13 @@ public final class ReportData {
 		public double momentumPct;
 		/** False if the sample never ran (the fight ended, or they went out of view). */
 		public boolean momentumKnown;
+		/**
+		 * False when no drop in the opponent's health was ever observed for this
+		 * exchange. Such a trade is left out of the win rate rather than scored as a
+		 * loss: a hit that did nothing and a hit whose result never reached this
+		 * client look exactly the same from here.
+		 */
+		public boolean damageKnown;
 		public int opponent = -1;
 	}
 

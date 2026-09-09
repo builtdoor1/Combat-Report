@@ -4,7 +4,10 @@ import combat_report.record.ReportData;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.multiplayer.PlayerInfo;
 import net.minecraft.client.player.LocalPlayer;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.damagesource.DamageSource;
+import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
@@ -100,7 +103,7 @@ public final class FightWatcher {
 			return null;
 		}
 
-		endFight();
+		endFight(mc);
 		this.combosDealt.flush();
 		this.combosTaken.flush();
 		this.jumps.flush();
@@ -138,6 +141,35 @@ public final class FightWatcher {
 			return;
 		}
 
+		ItemStack held = self.getItemInHand(InteractionHand.MAIN_HAND);
+
+		// The other two guards startAttack applies before it swings anything. The
+		// second one is not exotic in 1.21.11: every spear carries
+		// MINIMUM_ATTACK_CHARGE = 1.0, so cannotAttackWithItem discards every click
+		// thrown before the cooldown is full. Without this, spam-clicking a spear
+		// filled the report with misses vanilla never threw.
+		if (mc.level == null || !held.isItemEnabled(mc.level.enabledFeatures())) {
+			return;
+		}
+
+		if (self.cannotAttackWithItem(held, 0)) {
+			return;
+		}
+
+		// Piercing weapons - the 1.21.11 spears - are counted and then left alone.
+		// startAttack routes them to MultiPlayerGameMode.piercingAttack, which sends a
+		// STAB action and lets the server decide what was hit, so this client is never
+		// told whether the stab landed. Recording them as misses was simply wrong, and
+		// inferring a landed stab from the opponent losing health would mix a weaker
+		// kind of evidence into the accuracy figure. A spear also carries its own
+		// ATTACK_RANGE reaching 6.5 blocks, so folding its hits into a range figure
+		// built around vanilla's 3.0 would corrupt the one number it is there to give.
+		// The count is reported so the exclusion is visible rather than silent.
+		if (held.has(DataComponents.PIERCING_WEAPON)) {
+			this.data.piercingSwings++;
+			return;
+		}
+
 		SwingCapture.Aim aim = SwingCapture.resolve(mc, self);
 
 		if (aim == null) {
@@ -165,7 +197,7 @@ public final class FightWatcher {
 		}
 
 		long now = System.currentTimeMillis();
-		noteCombat(opponent, now);
+		noteCombat(opponent, now, true);
 		int index = opponentIndex(opponent);
 
 		if (this.swingOpen) {
@@ -191,7 +223,7 @@ public final class FightWatcher {
 		}
 
 		if (this.swingTarget != null) {
-			noteCombat(this.swingTarget, this.swing.t);
+			noteCombat(this.swingTarget, this.swing.t, this.swing.landed);
 			this.swing.opponent = opponentIndex(this.swingTarget);
 		}
 
@@ -218,7 +250,7 @@ public final class FightWatcher {
 		}
 
 		long now = System.currentTimeMillis();
-		noteCombat(attacker, now);
+		noteCombat(attacker, now, true);
 
 		this.combosTaken.onHit(opponentIndex(attacker), now);
 		this.jumps.onHitTaken(now);
@@ -256,7 +288,7 @@ public final class FightWatcher {
 		}
 
 		if (this.inFight && shouldEndFight(mc, now)) {
-			endFight();
+			endFight(mc);
 		}
 
 		this.combosDealt.tick(now);
@@ -278,14 +310,29 @@ public final class FightWatcher {
 
 	// ---- fight segmentation -------------------------------------------------
 
-	private void noteCombat(Player opponent, long nowMs) {
+	/**
+	 * Records a combat event, opening a fight if one is not already running.
+	 *
+	 * @param authoritative whether this event should also make {@code opponent} the
+	 *                      player the fight is tracked against. True for a landed
+	 *                      hit or a hit taken; false for a miss.
+	 *                      <p>A miss keeps the fight alive but does not retarget it.
+	 *                      Otherwise one stray whiff at someone walking past would
+	 *                      move the fight onto them, and the moment they wandered off
+	 *                      the distance check would end a duel that was still going -
+	 *                      splitting it in two, inflating the fight count and cutting
+	 *                      a combo in half.
+	 */
+	private void noteCombat(Player opponent, long nowMs, boolean authoritative) {
 		if (!this.inFight) {
 			this.inFight = true;
 			this.fightStartMs = nowMs;
 			this.data.fights++;
+			this.opponentId = opponent.getUUID();
+		} else if (authoritative) {
+			this.opponentId = opponent.getUUID();
 		}
 
-		this.opponentId = opponent.getUUID();
 		this.lastCombatMs = nowMs;
 		opponentIndex(opponent);
 	}
@@ -305,7 +352,7 @@ public final class FightWatcher {
 				&& opponent.distanceToSqr(mc.player) > Constants.FIGHT_MAX_DISTANCE * Constants.FIGHT_MAX_DISTANCE;
 	}
 
-	private void endFight() {
+	private void endFight(Minecraft mc) {
 		if (!this.inFight) {
 			return;
 		}
@@ -317,7 +364,11 @@ public final class FightWatcher {
 
 		this.combosDealt.flush();
 		this.combosTaken.flush();
-		this.trades.reset();
+
+		// flush, not reset: a trade whose momentum sample was still pending when the
+		// fight ended is a trade that happened, and dropping it would quietly shrink
+		// the denominator of every figure in that section.
+		this.trades.flush(mc);
 	}
 
 	private Player findOpponent(Minecraft mc) {

@@ -111,10 +111,27 @@ public final class Constants {
 	public static final double BASE_MOVEMENT_SPEED = 0.1;
 
 	/**
-	 * A health drop this soon after a hit is attributed to that hit. Health arrives
-	 * in a separate packet from the damage event, so the two are matched by time.
+	 * A health drop this soon AFTER a hit is attributed to that hit, plus the
+	 * measured latency. Health arrives in a separate packet from the damage event,
+	 * so the two are matched by time - and the drop can only ever arrive after the
+	 * click that caused it, which is why the window looks forward and barely back.
 	 */
-	public static final long DAMAGE_LINK_MS = 300L;
+	public static final long DAMAGE_LINK_MS = 500L;
+
+	/** Never widen the link window past this, however bad the connection is. */
+	public static final long DAMAGE_LINK_MAX_MS = 900L;
+
+	/** A drop this far BEFORE the hit belongs to the previous hit, not this one. */
+	public static final long DAMAGE_LINK_BACK_MS = 100L;
+
+	/**
+	 * Damage is read this many ticks after a trade - much later than the momentum
+	 * sample, because the opponent's health has to travel to the server and back
+	 * before this client can see it. Reading it at the momentum deadline scored
+	 * every high-ping trade as a loss, since an unobserved hit and a hit that did
+	 * nothing look identical.
+	 */
+	public static final int DAMAGE_SETTLE_TICKS = 24;
 
 	// ---- Misc ---------------------------------------------------------------
 

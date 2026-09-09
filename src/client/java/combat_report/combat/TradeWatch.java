@@ -59,7 +59,10 @@ public final class TradeWatch {
 		UUID opponent;
 		long dealtAtMs;
 		long takenAtMs;
-		int ticksLeft = Constants.MOMENTUM_SAMPLE_TICKS;
+		/** Ticks until the momentum sample; the damage read waits much longer. */
+		int momentumIn = Constants.MOMENTUM_SAMPLE_TICKS;
+		int damageIn = Constants.DAMAGE_SETTLE_TICKS;
+		boolean momentumDone;
 	}
 
 	public void onHitDealt(UUID opponent, int opponentIndex, long nowMs) {
@@ -113,25 +116,71 @@ public final class TradeWatch {
 		while (it.hasNext()) {
 			Pending p = it.next();
 
-			if (--p.ticksLeft > 0) {
+			// Two deadlines, because the two measurements become available at very
+			// different times. Momentum needs the knockback applied and not yet
+			// decayed, which is three ticks. Damage needs the opponent health to
+			// have made a server round trip, which at a bad connection is twenty.
+			if (!p.momentumDone && --p.momentumIn <= 0) {
+				sampleMomentum(mc, p);
+				p.momentumDone = true;
+			}
+
+			if (--p.damageIn > 0) {
 				continue;
 			}
 
-			settle(mc, p);
+			readDamage(mc, p);
 			this.sink.accept(p.trade);
 			it.remove();
 		}
 	}
 
+	/** Settles whatever is still outstanding on a trade being closed early. */
 	private void settle(Minecraft mc, Pending p) {
+		if (!p.momentumDone) {
+			sampleMomentum(mc, p);
+			p.momentumDone = true;
+		}
+
+		readDamage(mc, p);
+	}
+
+	private void readDamage(Minecraft mc, Pending p) {
 		LocalPlayer self = mc.player;
 
 		if (self == null) {
 			return;
 		}
 
-		p.trade.dealt = this.health.damageAround(p.opponent, p.dealtAtMs);
-		p.trade.taken = this.health.damageAround(self.getUUID(), p.takenAtMs);
+		long tolerance = Math.min(
+				Constants.DAMAGE_LINK_MAX_MS,
+				Constants.DAMAGE_LINK_MS + latencyMs(mc));
+
+		p.trade.dealt = this.health.damageAfter(p.opponent, p.dealtAtMs, tolerance);
+		p.trade.taken = this.health.damageAfter(self.getUUID(), p.takenAtMs, tolerance);
+
+		// Only a trade where the opponent was actually seen to lose health can be
+		// scored. Without that, a hit absorbed by a shield and a hit whose result
+		// never reached this client are the same observation, and calling both a
+		// loss makes the win rate a function of ping.
+		p.trade.damageKnown = p.trade.dealt > 0.0;
+	}
+
+	private static long latencyMs(Minecraft mc) {
+		if (mc.getConnection() == null || mc.player == null) {
+			return 0L;
+		}
+
+		var info = mc.getConnection().getPlayerInfo(mc.player.getUUID());
+		return info == null ? 0L : Math.max(0L, info.getLatency());
+	}
+
+	private void sampleMomentum(Minecraft mc, Pending p) {
+		LocalPlayer self = mc.player;
+
+		if (self == null) {
+			return;
+		}
 
 		Player opponent = findPlayer(mc, p.opponent);
 
@@ -178,7 +227,17 @@ public final class TradeWatch {
 		return null;
 	}
 
-	/** Settles everything outstanding. Called when the recording stops. */
+	/**
+	 * Settles and emits everything outstanding, then forgets the half-paired hits.
+	 *
+	 * <p>Called when a fight ends and when the recording stops. It emits rather than
+	 * discards on purpose: a trade trailing a fight by less than the momentum sample
+	 * delay is still a trade that happened, and dropping it would quietly shrink the
+	 * denominator of every figure in the section.
+	 *
+	 * <p>The pairing slots are cleared as well, so a hit dealt at the end of one
+	 * fight can never pair with a hit taken at the start of the next.
+	 */
 	public void flush(Minecraft mc) {
 		for (Pending p : this.pending) {
 			settle(mc, p);
@@ -186,10 +245,10 @@ public final class TradeWatch {
 		}
 
 		this.pending.clear();
+		clearPairing();
 	}
 
-	public void reset() {
-		this.pending.clear();
+	private void clearPairing() {
 		this.dealtUsed = true;
 		this.takenUsed = true;
 		this.dealtOn = null;

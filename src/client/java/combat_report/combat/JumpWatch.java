@@ -76,6 +76,17 @@ public final class JumpWatch {
 		}
 	}
 
+	/**
+	 * A jump that has not landed within this is closed anyway.
+	 *
+	 * <p>Without it a jump could stay open forever and the pending list would grow
+	 * for the rest of the recording: dying in the air, landing in water, an elytra,
+	 * a boat, a lava lift or a level change all leave a jump that never sees
+	 * {@code onGround} again. Ten seconds is far longer than any jump that could
+	 * still be punished, so closing at that point costs nothing.
+	 */
+	private static final long AIRBORNE_GIVE_UP_MS = 10_000L;
+
 	/** @param onGround the player's grounded state this tick */
 	public void tick(long nowMs, boolean onGround) {
 		Iterator<Pending> it = this.pending.iterator();
@@ -88,8 +99,9 @@ public final class JumpWatch {
 			}
 
 			boolean windowClosed = nowMs - p.jump.t > Constants.JUMP_ATTEMPT_MS;
+			boolean gaveUp = nowMs - p.jump.t > AIRBORNE_GIVE_UP_MS;
 
-			if (!p.airborne && windowClosed) {
+			if ((!p.airborne && windowClosed) || gaveUp) {
 				this.sink.accept(p.jump);
 				it.remove();
 			}

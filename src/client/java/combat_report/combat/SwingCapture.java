@@ -42,6 +42,15 @@ public final class SwingCapture {
 			return new Aim(picked, true, reachTo(self, picked));
 		}
 
+		// The click connected with something that is not a player - an end crystal, a
+		// pet, an armour stand. That is not a swing at a player at all, so it is
+		// dropped rather than blamed on whoever happened to be nearest the crosshair.
+		// Crystal PvP would otherwise fill the miss column with clicks that hit
+		// exactly what they were aimed at.
+		if (hit instanceof EntityHitResult) {
+			return null;
+		}
+
 		Player intended = findIntendedTarget(mc, self);
 		return intended == null ? null : new Aim(intended, false, reachTo(self, intended));
 	}

@@ -119,6 +119,17 @@ public final class ReportBuilder {
 		card(h, "Misses", String.valueOf(s.missed), "swings at an opponent that did not connect");
 		h.append("</div>");
 
+		if (d.piercingSwings > 0) {
+			h.append("<p class=\"note\">")
+					.append(d.piercingSwings)
+					.append(d.piercingSwings == 1 ? " spear attack was" : " spear attacks were")
+					.append(" thrown during this recording and are not included above. A spear is")
+					.append(" resolved on the server, so this client is never told whether the stab")
+					.append(" landed, and its reach goes well past the 3.0 blocks these figures are")
+					.append(" built around. Counting them would have made every number here worse.")
+					.append("</p>");
+		}
+
 		h.append("<h3>Spread</h3>");
 		h.append("<p class=\"sub\">What kind of hit each landed swing was. ")
 				.append("These five are how vanilla itself decides an attack, so every landed hit is exactly one of them.</p>");
@@ -400,7 +411,7 @@ public final class ReportBuilder {
 				s.damageKnown ? pct(s.damageWinPct, s.damageWins + s.damageLosses) : "&mdash;",
 				s.damageKnown
 						? s.damageWins + " won, " + s.damageLosses + " lost, " + s.damageDraws + " even"
-						: (d.opponentHealthSeen ? "no decided trades" : "this server does not share opponent health"));
+						: (d.opponentHealthSeen ? "no trade had a measurable outcome" : "this server does not share opponent health"));
 		card(h, "Trades", String.valueOf(s.trades), "exchanges where you both connected");
 		h.append("</div>");
 

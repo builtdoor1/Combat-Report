@@ -76,6 +76,8 @@ A **trade** is one hit each, landed within 400 ms of the other. Each hit is spen
 
 Draws are excluded from the damage win rate rather than counted as half. "You win 60% of the trades that were decided" is a claim the data supports; folding draws into the denominator makes the number move when nothing changed.
 
+So is any trade where the opponent was never seen to lose health. From this side a hit absorbed by a shield and a hit whose result never made it back across a bad connection are the same observation, and scoring both as losses would make your win rate a function of your ping.
+
 ---
 
 ## Install
@@ -134,7 +136,8 @@ Numbers with no denominator print as a dash, not as zero. An empty recording sho
 - **Reach is what your game saw.** Other players' positions are interpolated locally and the server saw them slightly differently depending on your ping. These figures will not match a server anti-cheat's exactly.
 - **Damage figures need the server to share opponent health.** Many do; some do not. Where it is not shared, the damage-win figure is withheld rather than printed as zero — a zero there would read as you doing no damage rather than as nothing being measured. The report says so explicitly when that happens.
 - **Sweep secondary targets are invisible.** Vanilla resolves them server-side; the client only ever sees the primary target.
-- **Hits on mobs are ignored.** This measures PvP.
+- **Spear attacks are counted but not measured.** See below.
+- **Hits on mobs are ignored.** This measures PvP. A click that connects with a crystal, a pet or an armour stand is dropped rather than blamed on whoever was nearest your crosshair.
 
 There is no signature, no checksum and no upload. The files are yours, they go nowhere, and equally they prove nothing to a stranger — anyone can edit a JSON file. This is a mod for seeing what your own fights looked like, not for winning an argument.
 
@@ -193,11 +196,28 @@ The timing is the load-bearing part. `MultiPlayerGameMode.attack` runs `player.a
 </details>
 
 <details>
+<summary><b>Spears, and why they are left out</b></summary>
+
+1.21.11 spears are not just another melee weapon. Each one carries three components that change how the attack works:
+
+- **`PIERCING_WEAPON`** — `Minecraft.startAttack` routes the click to `MultiPlayerGameMode.piercingAttack`, which sends a `STAB` action and lets the **server** decide what was hit. It never calls `player.attack(entity)`. So this client is never told whether a stab landed.
+- **`MINIMUM_ATTACK_CHARGE = 1.0`** — every click thrown before the cooldown is full is discarded by vanilla without swinging anything.
+- **`ATTACK_RANGE`** reaching up to 6.5 blocks, against the 3.0 these figures are built around.
+
+An earlier build recorded every spear attack as a **miss**, which is simply wrong, and undercharged clicks as misses on top of that. Both are now fixed: undercharged clicks are not recorded at all, because vanilla threw no swing, and spear attacks are counted and excluded, with the count printed on the report so the exclusion is visible rather than silent.
+
+Inferring a landed stab from the opponent losing health would be possible, but it is weaker evidence than the rest of the section is built on, and a 6.5-block weapon folded into a range figure would corrupt the one number that section exists to give.
+
+</details>
+
+<details>
 <summary><b>Hits taken, and why not knockback magnitude</b></summary>
 
 Damage taken is read at `LivingEntity.handleDamageEvent`, and the source it is handed has already been resolved against your client's level — so it **names the attacker** rather than leaving a hit to be inferred from how hard you were thrown. Received combos and trades both depend on knowing who hit you, which a knockback-magnitude heuristic cannot tell you.
 
 Damage *amounts* come from watching health fall, since a damage event carries no number. Absorption is added in before differencing, so a hit soaked by a golden apple still registers.
+
+The window that matches a health drop to a hit looks **forward** in time and widens with your latency. A drop caused by your click can only arrive after it, one round trip later; a symmetric window would let a hit steal the previous hit's damage, which inside a combo is only half a second away. The damage read also waits far longer than the momentum sample for the same reason — reading it at the momentum deadline scored every high-ping trade as a loss.
 
 </details>
 
