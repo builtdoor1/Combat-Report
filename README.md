@@ -4,6 +4,11 @@ Measures how you fight, and writes it up.
 
 A client-side [Fabric](https://fabricmc.net/) mod for **Minecraft 1.21.11**. Hit record, play some fights, hit stop, and you get a page covering your hits, your combos, your jumps and your trades. By *builtdoor*.
 
+> **This is an alpha.** Every statistic is checked against hand-computed values and the
+> mixin targets are verified against decompiled 1.21.11 sources, but the build has not yet
+> been through a real fight. Expect to be the first person to find out. If it misbehaves,
+> [open an issue](../../issues).
+
 It never touches your gameplay. It cannot help you aim, reach further, click faster or reset better. It only watches and writes down what already happened.
 
 **It does not record between fights.** A fight starts when you swing at another player or take a hit from one, and ends eight seconds after the last hit either way. Everything else — walking back, gearing up, waiting in queue — is thrown away before any statistic is computed. That matters most for the time-based figures: combo frequency measured across a lobby wait is not a number about you.
