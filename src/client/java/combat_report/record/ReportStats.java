@@ -165,7 +165,7 @@ public final class ReportStats {
 			// around a lobby between fights is not combat and must not dilute the
 			// punishment rate, but a jump that a hit arrived next to is combat even
 			// if no fight had opened when it was thrown.
-			if (!j.inCombat && !j.attempt) {
+			if (!j.counted()) {
 				continue;
 			}
 

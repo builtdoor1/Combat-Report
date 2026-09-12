@@ -104,6 +104,19 @@ public final class ReportData {
 		public boolean reset;
 		/** True if the opponent hit you before you touched the ground again. */
 		public boolean deflected;
+
+		/**
+		 * Whether this jump belongs in the report at all.
+		 *
+		 * <p>Combat jumps count, and so does a jump a hit arrived next to even if no
+		 * fight had opened when it was thrown. Jumping around a lobby does not.
+		 *
+		 * <p>Lives here rather than in the summariser because the report draws the
+		 * same population it counts, and two copies of this condition would drift.
+		 */
+		public boolean counted() {
+			return this.inCombat || this.attempt;
+		}
 	}
 
 	/** A hit dealt and a hit taken close enough together to be one exchange. */

@@ -194,6 +194,16 @@ public final class ReportPreview {
 		if (s.forwardTrades > s.tradesWithMomentum) {
 			failures.add("more forward trades than trades with a momentum sample");
 		}
+
+		long drawn = d.jumps.stream().filter(ReportData.Jump::counted).count();
+
+		if (drawn != s.jumps) {
+			failures.add("the punishment strip would draw " + drawn + " jumps but the card says " + s.jumps);
+		}
+
+		if (s.deflected > s.jumps) {
+			failures.add("more punished jumps than jumps");
+		}
 	}
 
 	/**
@@ -263,6 +273,8 @@ public final class ReportPreview {
 		// Four jumps recorded, three counted - the idle one is trimmed.
 		expect(failures, "jumps recorded", 4.0, d.jumps.size());
 		expect(failures, "jumps counted", 3.0, s.jumps);
+		expect(failures, "chart population matches the count",
+				s.jumps, d.jumps.stream().filter(ReportData.Jump::counted).count());
 		expect(failures, "reset attempts", 2.0, s.resetAttempts);
 		expect(failures, "reset accuracy", 50.0, s.resetPct);
 		expect(failures, "average reset timing", 95.0, s.avgResetDeltaMs);

@@ -133,7 +133,9 @@ Two files land in `.minecraft/config/combat_report/reports/`:
 - **`report-<time>.html`** is the report. Double-click it; it opens in your browser, needs no internet, and fetches nothing.
 - **`report-<time>.json`** is the same numbers in a form anyone can check.
 
-The page has the four sections above, plus three charts: the range of every swing against the vanilla 3.0 line, your reset timing against the success window, and the momentum you left each trade with. Hovering any point shows its exact value.
+The page has the four sections above, plus three charts: the range of every swing against the vanilla 3.0 line, a two-panel jump chart, and the momentum you left each trade with. Hovering any point shows its exact value.
+
+The jump chart has two panels because the section answers two questions over two different populations. The top is reset timing — only attempts appear, placed by how long after the hit you jumped, with a ring on any that were also punished in the air. The bottom is one mark per jump in combat, oldest first: the denominator the punishment rate is measured over, with tall red marks for the jumps that got hit before landing. Attempts are a subset of those, so the panels hold different numbers of marks — and that gap is the point. A jump punished with no hit nearby never appears on the timing axis at all.
 
 Numbers with no denominator print as a dash, not as zero. An empty recording should look empty, not terrible.
 

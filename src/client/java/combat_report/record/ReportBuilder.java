@@ -317,52 +317,84 @@ public final class ReportBuilder {
 				.append("that happened nearby. A jump is punished if the opponent lands a hit on you before your ")
 				.append("feet touch the ground again.</p>");
 
-		if (s.resetAttempts > 0) {
-			h.append("<h3>Reset timing</h3>");
-			jumpChart(h, d);
-			h.append("<p class=\"sub\">Each attempt, plotted by how long after the hit you jumped. ")
-					.append("The green band is the window that cancels the knockback. ")
-					.append("Points left of zero are jumps thrown before the hit landed.</p>");
+		if (s.jumps > 0) {
+			h.append("<h3>Timing and punishment</h3>");
+			jumpChart(h, d, s);
+			h.append("<p class=\"sub\"><b>Top:</b> every reset attempt, placed by how long after the hit ")
+					.append("you jumped. The green band is the window that cancels the knockback; points ")
+					.append("left of zero are jumps thrown before the hit landed. Height carries no meaning, ")
+					.append("it only keeps the points apart. A ring means that jump was also punished in ")
+					.append("the air.</p>");
+			h.append("<p class=\"sub\"><b>Bottom:</b> one mark per jump in combat, oldest first &mdash; ")
+					.append("the population the punishment rate is measured over. Tall red marks were hit ")
+					.append("before landing. The share of the strip that is red <i>is</i> the ")
+					.append(num(s.deflectedPct, 1)).append("% above. Attempts are a subset of these, ")
+					.append("so the two panels do not hold the same number of marks.</p>");
 		}
 
 		h.append("</section>");
 	}
 
-	private static void jumpChart(StringBuilder h, ReportData d) {
+	/**
+	 * Two panels, because the section answers two questions over two different
+	 * populations and pretending otherwise would misrepresent both.
+	 *
+	 * <p>The top panel is reset timing: only attempts appear, placed by their delta.
+	 * The bottom strip is every jump in combat, which is the denominator the
+	 * punishment rate is actually measured over — a superset of the attempts. Trying
+	 * to put punishment on the timing axis would have meant either dropping the
+	 * non-attempt jumps (changing the statistic) or inventing an x position for
+	 * jumps that have no delta (inventing data).
+	 */
+	private static void jumpChart(StringBuilder h, ReportData d, ReportData.Summary s) {
 		int w = 1200;
-		int hgt = 170;
 		int ml = 46;
 		int mr = 14;
-		int mt = 18;
-		int mb = 30;
 		int pw = w - ml - mr;
-		int ph = hgt - mt - mb;
+
+		int topLabelY = 14;
+		int topY = 22;
+		int topH = 118;
+		int axisY = topY + topH;
+		int stripLabelY = 190;
+		int stripY = 200;
+		int stripH = 46;
+		int hgt = stripY + stripH + 26;
 
 		long span = Constants.JUMP_ATTEMPT_MS;
 
 		h.append("<div class=\"chartwrap\">");
 		svgOpen(h, w, hgt);
 
-		// Success window band.
+		// ---- top panel: when each attempt was thrown ------------------------
+		h.append("<text x=\"").append(ml).append("\" y=\"").append(topLabelY)
+				.append("\" class=\"ax\">reset attempts, by timing</text>");
+
 		int bandX0 = msToX(Constants.JUMP_SUCCESS_MIN_MS, span, ml, pw);
 		int bandX1 = msToX(Constants.JUMP_SUCCESS_MAX_MS, span, ml, pw);
-		h.append("<rect x=\"").append(bandX0).append("\" y=\"").append(mt)
-				.append("\" width=\"").append(Math.max(1, bandX1 - bandX0)).append("\" height=\"").append(ph)
+		h.append("<rect x=\"").append(bandX0).append("\" y=\"").append(topY)
+				.append("\" width=\"").append(Math.max(1, bandX1 - bandX0)).append("\" height=\"").append(topH)
 				.append("\" fill=\"").append(GOOD).append("\" fill-opacity=\"0.14\"/>");
 
-		// Axis ticks every 50 ms.
 		for (long v = -span; v <= span; v += 50L) {
 			int x = msToX(v, span, ml, pw);
-			h.append("<line x1=\"").append(x).append("\" y1=\"").append(mt)
-					.append("\" x2=\"").append(x).append("\" y2=\"").append(mt + ph)
+			h.append("<line x1=\"").append(x).append("\" y1=\"").append(topY)
+					.append("\" x2=\"").append(x).append("\" y2=\"").append(axisY)
 					.append("\" stroke=\"").append(LINE).append("\" stroke-width=\"1\"/>");
-			h.append("<text x=\"").append(x).append("\" y=\"").append(mt + ph + 18)
+			h.append("<text x=\"").append(x).append("\" y=\"").append(axisY + 18)
 					.append("\" class=\"ax\" text-anchor=\"middle\">").append(v).append("</text>");
 		}
 
 		List<ReportData.Jump> attempts = new ArrayList<>();
+		List<ReportData.Jump> counted = new ArrayList<>();
 
 		for (ReportData.Jump j : d.jumps) {
+			if (!j.counted()) {
+				continue;
+			}
+
+			counted.add(j);
+
 			if (j.attempt) {
 				attempts.add(j);
 			}
@@ -374,13 +406,56 @@ public final class ReportBuilder {
 			ReportData.Jump j = attempts.get(i);
 			int x = msToX(j.deltaMs, span, ml, pw);
 			double fy = n <= 1 ? 0.5 : (double) i / (n - 1);
-			int y = (int) Math.round(mt + 8 + fy * (ph - 16));
+			int y = (int) Math.round(topY + 10 + fy * (topH - 20));
 
 			h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
 					.append("\" r=\"4\" fill=\"").append(j.reset ? GOOD : BAD)
 					.append("\" fill-opacity=\"0.85\"><title>").append(j.deltaMs).append(" ms - ")
 					.append(j.reset ? "reset" : (j.deltaMs < 0 ? "too early" : "too late"))
+					.append(j.deflected ? ", punished in the air" : "")
 					.append("</title></circle>");
+
+			// A ring rather than a third colour: the fill already carries whether the
+			// timing worked, and punishment is a separate question about the same jump.
+			if (j.deflected) {
+				h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
+						.append("\" r=\"7.5\" fill=\"none\" stroke=\"").append(MUTED)
+						.append("\" stroke-width=\"1.5\"/>");
+			}
+		}
+
+		if (n == 0) {
+			h.append("<text x=\"").append(ml + pw / 2).append("\" y=\"").append(topY + topH / 2)
+					.append("\" class=\"ax\" text-anchor=\"middle\">no jump landed close enough to a hit to be an attempt</text>");
+		}
+
+		// ---- bottom strip: every jump in combat, punished or not ------------
+		h.append("<text x=\"").append(ml).append("\" y=\"").append(stripLabelY)
+				.append("\" class=\"ax\">every jump in combat, oldest first - ")
+				.append(s.deflected).append(" of ").append(counted.size()).append(" punished</text>");
+
+		h.append("<rect x=\"").append(ml).append("\" y=\"").append(stripY)
+				.append("\" width=\"").append(pw).append("\" height=\"").append(stripH)
+				.append("\" fill=\"").append(BG).append("\" fill-opacity=\"0.5\" rx=\"4\"/>");
+
+		int total = counted.size();
+		double slot = (double) pw / Math.max(1, total);
+		double barW = Math.max(2.0, Math.min(10.0, slot * 0.6));
+		int midY = stripY + stripH / 2;
+
+		for (int i = 0; i < total; i++) {
+			ReportData.Jump j = counted.get(i);
+			double cx = ml + slot * (i + 0.5);
+			int barH = j.deflected ? 30 : 12;
+			double y = midY - barH / 2.0;
+
+			h.append("<rect x=\"").append(num(cx - barW / 2.0, 2)).append("\" y=\"").append(num(y, 2))
+					.append("\" width=\"").append(num(barW, 2)).append("\" height=\"").append(barH)
+					.append("\" rx=\"1\" fill=\"").append(j.deflected ? BAD : MUTED)
+					.append("\" fill-opacity=\"").append(j.deflected ? "0.9" : "0.45").append("\"><title>")
+					.append(j.deflected ? "punished - hit before landing" : "landed cleanly")
+					.append(j.attempt ? ", reset attempt " + j.deltaMs + " ms" : "")
+					.append("</title></rect>");
 		}
 
 		h.append("</svg></div>");
