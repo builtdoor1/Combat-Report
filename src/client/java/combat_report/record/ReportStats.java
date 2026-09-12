@@ -35,10 +35,25 @@ public final class ReportStats {
 
 		double reachSum = 0.0;
 		double pickChargeSum = 0.0;
+		double missPickChargeSum = 0.0;
 
 		for (ReportData.Swing sw : d.swings) {
+			String type = typeOf(sw);
+
 			if (!sw.landed) {
 				s.missed++;
+
+				switch (type) {
+					case "PICK" -> {
+						s.missPick++;
+						missPickChargeSum += sw.charge;
+					}
+					case "KB" -> s.missKb++;
+					case "CRIT" -> s.missCrit++;
+					case "SWEEP" -> s.missSweep++;
+					default -> s.missPlain++;
+				}
+
 				continue;
 			}
 
@@ -50,12 +65,7 @@ public final class ReportStats {
 				s.threeBlockHits++;
 			}
 
-			if (sw.type == null) {
-				s.plain++;
-				continue;
-			}
-
-			switch (sw.type) {
+			switch (type) {
 				case "PICK" -> {
 					s.pick++;
 					pickChargeSum += sw.charge;
@@ -69,6 +79,32 @@ public final class ReportStats {
 
 		if (s.swings > 0) {
 			s.accuracyPct = pct(s.landed, s.swings);
+		}
+
+		// Thrown, and how much of it stuck. Computed from both halves, so a type
+		// nobody threw stays at zero rather than dividing by nothing.
+		s.pickThrown = s.pick + s.missPick;
+		s.kbThrown = s.kb + s.missKb;
+		s.critThrown = s.crit + s.missCrit;
+		s.sweepThrown = s.sweep + s.missSweep;
+		s.plainThrown = s.plain + s.missPlain;
+
+		s.pickLandPct = pct(s.pick, s.pickThrown);
+		s.kbLandPct = pct(s.kb, s.kbThrown);
+		s.critLandPct = pct(s.crit, s.critThrown);
+		s.sweepLandPct = pct(s.sweep, s.sweepThrown);
+		s.plainLandPct = pct(s.plain, s.plainThrown);
+
+		if (s.missed > 0) {
+			s.missPickPct = pct(s.missPick, s.missed);
+			s.missKbPct = pct(s.missKb, s.missed);
+			s.missCritPct = pct(s.missCrit, s.missed);
+			s.missSweepPct = pct(s.missSweep, s.missed);
+			s.missPlainPct = pct(s.missPlain, s.missed);
+		}
+
+		if (s.missPick > 0) {
+			s.avgMissPickCharge = missPickChargeSum / s.missPick;
 		}
 
 		if (s.landed > 0) {
@@ -248,5 +284,16 @@ public final class ReportStats {
 
 	private static double pct(int part, int whole) {
 		return whole <= 0 ? 0.0 : 100.0 * part / whole;
+	}
+
+	/**
+	 * The bucket a swing falls in.
+	 *
+	 * <p>A null type means a recording made before misses were classified. It lands
+	 * in Plain, which is where an unrecognised type already went, rather than in a
+	 * sixth bucket that would break the spread adding to a hundred.
+	 */
+	private static String typeOf(ReportData.Swing sw) {
+		return sw.type == null ? "PLAIN" : sw.type;
 	}
 }

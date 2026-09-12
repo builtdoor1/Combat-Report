@@ -180,15 +180,43 @@ public final class ReportBuilder {
 					.append("</p>");
 		}
 
-		h.append("<h3>Spread</h3>");
+		h.append("<h3>Spread of landed hits</h3>");
 		h.append("<p class=\"sub\">What kind of hit each landed swing was. ")
 				.append("These five are how vanilla itself decides an attack, so every landed hit is exactly one of them.</p>");
-		spreadBar(h, s);
+		spreadBar(h, landedSlices(s), s.landed, "hits", "No landed hits to break down.");
 
 		if (s.pick > 0) {
 			h.append("<p class=\"sub\">Pick hits were swung at ")
 					.append(Math.round(s.avgPickCharge * 100.0))
 					.append("% charge on average. Below 90% is what makes a hit a pick hit.</p>");
+		}
+
+		h.append("<h3>Spread of misses</h3>");
+		h.append("<p class=\"sub\">And what kind of swing each <i>miss</i> was. Charge, sprint, fall and ")
+				.append("weapon are all facts about the swing you threw rather than about the hit you did not ")
+				.append("get, so a miss can be typed the same way a hit can &mdash; this is what the swing ")
+				.append("would have been had it connected.</p>");
+		spreadBar(h, missedSlices(s), s.missed, "misses", "Nothing missed.");
+
+		// Two percentages sit on every legend line and they are easy to read as the
+		// same kind of number. They are not, and the second is the useful one.
+		h.append("<p class=\"sub\">The percentage on each row is that type's share of your ")
+				.append("<b>misses</b>. The figure after it is that type's <b>land rate</b> &mdash; how much ")
+				.append("of what you threw actually connected. A type can be most of your misses just by ")
+				.append("being most of your swings, so the land rate is the one that says a kind of swing is ")
+				.append("letting you down.</p>");
+
+		if (s.missPick > 0) {
+			h.append("<p class=\"sub\">Missed pick swings were thrown at ")
+					.append(Math.round(s.avgMissPickCharge * 100.0))
+					.append("% charge on average");
+
+			if (s.pick > 0) {
+				h.append(", against ").append(Math.round(s.avgPickCharge * 100.0))
+						.append("% for the ones that landed");
+			}
+
+			h.append(". A gap there means the early swings are the ones going wide.</p>");
 		}
 
 		if (s.swings > 0) {
@@ -201,21 +229,53 @@ public final class ReportBuilder {
 		h.append("</section>");
 	}
 
-	private static void spreadBar(StringBuilder h, ReportData.Summary s) {
-		if (s.landed <= 0) {
-			h.append("<p class=\"none\">No landed hits to break down.</p>");
-			return;
-		}
+	/** One band of a spread bar, and its line in the legend beneath it. */
+	private record Slice(String label, int count, double pct, String colour, String note) {
+	}
 
-		record Slice(String label, int count, double pct, String colour, String note) {
-		}
-
+	private static List<Slice> landedSlices(ReportData.Summary s) {
 		List<Slice> slices = new ArrayList<>();
 		slices.add(new Slice("Pick", s.pick, s.pickPct, C_PICK, "swung before the cooldown finished"));
 		slices.add(new Slice("KB", s.kb, s.kbPct, C_KB, "sprint hit, full knockback"));
 		slices.add(new Slice("Crit", s.crit, s.critPct, C_CRIT, "falling and not sprinting"));
 		slices.add(new Slice("Sweep", s.sweep, s.sweepPct, C_SWEEP, "charged sword swung standing still"));
 		slices.add(new Slice("Plain", s.plain, s.plainPct, C_PLAIN, "charged, but none of the above"));
+		return slices;
+	}
+
+	/**
+	 * The same five buckets over the swings that missed, each carrying how often
+	 * that kind of swing lands at all.
+	 *
+	 * <p>The two figures answer different questions and the second is the one worth
+	 * acting on. A type can dominate the misses simply by dominating the swings —
+	 * half your misses being sprint hits means nothing if sprint hits are also half
+	 * of everything you throw. The landing rate is what says a kind of swing is
+	 * actually letting you down.
+	 */
+	private static List<Slice> missedSlices(ReportData.Summary s) {
+		List<Slice> slices = new ArrayList<>();
+		slices.add(new Slice("Pick", s.missPick, s.missPickPct, C_PICK, landNote(s.pick, s.pickThrown)));
+		slices.add(new Slice("KB", s.missKb, s.missKbPct, C_KB, landNote(s.kb, s.kbThrown)));
+		slices.add(new Slice("Crit", s.missCrit, s.missCritPct, C_CRIT, landNote(s.crit, s.critThrown)));
+		slices.add(new Slice("Sweep", s.missSweep, s.missSweepPct, C_SWEEP, landNote(s.sweep, s.sweepThrown)));
+		slices.add(new Slice("Plain", s.missPlain, s.missPlainPct, C_PLAIN, landNote(s.plain, s.plainThrown)));
+		return slices;
+	}
+
+	private static String landNote(int landed, int thrown) {
+		if (thrown <= 0) {
+			return "none thrown";
+		}
+
+		return landed + " of " + thrown + " thrown landed &middot; " + num(100.0 * landed / thrown, 0) + "% land rate";
+	}
+
+	private static void spreadBar(StringBuilder h, List<Slice> slices, int total, String noun, String emptyText) {
+		if (total <= 0) {
+			h.append("<p class=\"none\">").append(emptyText).append("</p>");
+			return;
+		}
 
 		h.append("<div class=\"bar\">");
 
@@ -226,7 +286,7 @@ public final class ReportBuilder {
 
 			h.append("<div class=\"seg\" style=\"width:").append(num(sl.pct(), 3))
 					.append("%;background:").append(sl.colour()).append("\" title=\"")
-					.append(sl.label()).append(": ").append(sl.count()).append(" hits, ")
+					.append(sl.label()).append(": ").append(sl.count()).append(" ").append(noun).append(", ")
 					.append(num(sl.pct(), 1)).append("%\"></div>");
 		}
 

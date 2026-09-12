@@ -70,7 +70,15 @@ public final class ReportData {
 		public boolean landed;
 		/** Eye to the nearest point of the target's hitbox, in blocks. */
 		public double reach;
-		/** {@code HitType.name()} for a landed hit, null for a miss. */
+		/**
+		 * {@code HitType.name()} for this swing.
+		 *
+		 * <p>Set for misses as well as hits. On a miss it is what the swing <i>would
+		 * have been</i> had it connected: the charge, the sprint, the fall and the
+		 * weapon are all facts about the swing you threw, not about the hit you did
+		 * not get. Vanilla decides the type from exactly those, at an instant that
+		 * has already passed by the time the swing is known to have missed.
+		 */
 		public String type;
 		/** Attack-cooldown charge at the moment of the swing, 0..1. */
 		public double charge;
@@ -162,6 +170,36 @@ public final class ReportData {
 		public double plainPct;
 		/** Average charge of the uncharged hits, 0..1. Says how early they were. */
 		public double avgPickCharge;
+
+		// The same five buckets over the swings that MISSED. A miss carries the type
+		// it would have been, so the misses break down exactly like the hits do and
+		// this spread sums to 100% of them for the same reason.
+		public int missPick;
+		public int missKb;
+		public int missCrit;
+		public int missSweep;
+		public int missPlain;
+		public double missPickPct;
+		public double missKbPct;
+		public double missCritPct;
+		public double missSweepPct;
+		public double missPlainPct;
+		public double avgMissPickCharge;
+
+		// How many of each type were thrown at all, and how many of those landed.
+		// The composition of the misses says what you whiff most; this says what you
+		// whiff most OFTEN, which is a different question - a type can be most of
+		// your misses simply because it is most of your swings.
+		public int pickThrown;
+		public int kbThrown;
+		public int critThrown;
+		public int sweepThrown;
+		public int plainThrown;
+		public double pickLandPct;
+		public double kbLandPct;
+		public double critLandPct;
+		public double sweepLandPct;
+		public double plainLandPct;
 
 		public double avgReach;
 		public double rangeLo;

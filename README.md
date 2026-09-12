@@ -33,7 +33,8 @@ Events are captured continuously and filtered afterwards, which is the only orde
 | Figure | What it is |
 |---|---|
 | **Accuracy** | Landed hits as a share of swings thrown at an opponent |
-| **Spread** | What kind of hit each landed swing was: pick, kb, crit, sweep or plain |
+| **Spread of landed hits** | What kind of hit each landed swing was: pick, kb, crit, sweep or plain |
+| **Spread of misses** | The same five buckets over the swings that *missed*, plus how often each kind lands at all |
 | **Average range** | Average hit distance, reported as a 0.3-wide band, e.g. `2.5–2.8` |
 | **3 block accuracy** | Share of landed hits past 2.9 blocks |
 
@@ -48,6 +49,12 @@ The five hit types are mutually exclusive and cover every landed hit, so the spr
 | **Plain** | Charged, but none of the above — an axe, or a sword swung while walking |
 
 A crit requires not sprinting, and a sweep requires neither a crit nor a sprint hit, so they can never collide. **Plain** exists because those four do not cover everything, and a spread that quietly dropped the leftovers would not add up.
+
+**Misses are typed too.** Every input the classification reads — charge, sprint, fall, footing, weapon — is a fact about the swing you threw, not about the hit you did not get, so a miss carries the type it *would have been* had it connected. That is the only way to type a miss at all: a whiff never reaches the method where vanilla decides, so the type has to be taken at the moment of the swing.
+
+Alongside each bucket the miss spread prints that type's **land rate**, because the two answer different questions and the second is the one worth acting on:
+
+> Half your misses being sprint hits means nothing if sprint hits are also half of everything you throw. A type dominates the misses by dominating the swings. The land rate is what says a kind of swing is actually letting you down — "pick swings are 32% of your misses **and** only land 41% of the time" is a sentence you can do something about.
 
 ### 2 · Combos
 

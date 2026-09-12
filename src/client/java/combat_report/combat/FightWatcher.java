@@ -148,6 +148,18 @@ public final class FightWatcher {
 			return;
 		}
 
+		// A spectator still reaches startAttack - handleKeybinds only gates the attack
+		// loop on isUsingItem, and vanilla's own spectator test sits further down, at
+		// the swing animation. What it does NOT reach is player.attack, because
+		// MultiPlayerGameMode.attack skips that for a spectator. So without this the
+		// click opens a swing that can never be marked landed, and gets filed as a
+		// miss: a phantom whiff, with a hit type on it, against someone who was never
+		// being fought. MultiPlayerGameModeMixin already drops the landed half by
+		// injecting inside that guard; this drops the other half.
+		if (self.isSpectator()) {
+			return;
+		}
+
 		ItemStack held = self.getItemInHand(InteractionHand.MAIN_HAND);
 
 		// The other two guards startAttack applies before it swings anything. The
@@ -187,6 +199,19 @@ public final class FightWatcher {
 		this.swing.t = System.currentTimeMillis();
 		this.swing.reach = aim.reach();
 		this.swing.charge = HitClassifier.charge(self);
+
+		// Classified here, before the swing is known to have landed, because every
+		// input the classification reads - charge, sprint, fall, footing, weapon - is
+		// a fact about the swing rather than about the hit. A miss never reaches
+		// MultiPlayerGameMode.attack, so this is the only chance to record what it
+		// was; without it the misses have no type and cannot be broken down at all.
+		//
+		// Nothing between here and that call mutates any of those inputs, so a swing
+		// that does land is classified identically twice. onLandedHit re-runs it
+		// anyway, against the entity vanilla actually picked rather than the one this
+		// swing was aimed at, and that answer wins.
+		this.swing.type = HitClassifier.classify(self, aim.target()).name();
+
 		this.swingTarget = aim.target();
 		this.swingOpen = true;
 	}

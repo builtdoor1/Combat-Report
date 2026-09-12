@@ -74,6 +74,7 @@ public final class ReportPreview {
 		d.opponentHealthSeen = true;
 
 		String[] types = {"KB", "KB", "KB", "CRIT", "SWEEP", "PICK", "PLAIN"};
+		String[] missTypes = {"PICK", "PICK", "PICK", "KB", "KB", "CRIT", "PLAIN"};
 
 		for (int i = 0; i < 180; i++) {
 			ReportData.Swing s = new ReportData.Swing();
@@ -85,10 +86,11 @@ public final class ReportPreview {
 			s.reach = Math.max(0.4, Math.min(5.5, s.reach));
 			s.opponent = rng.nextInt(2);
 
-			if (s.landed) {
-				s.type = types[rng.nextInt(types.length)];
-				s.charge = "PICK".equals(s.type) ? 0.45 + rng.nextDouble() * 0.4 : 1.0;
-			}
+			// Misses skew toward uncharged swings, which is the shape a real session
+			// has and the reason the two spreads are worth showing separately.
+			String[] pool = s.landed ? types : missTypes;
+			s.type = pool[rng.nextInt(pool.length)];
+			s.charge = "PICK".equals(s.type) ? 0.40 + rng.nextDouble() * 0.45 : 1.0;
 
 			d.swings.add(s);
 		}
@@ -169,6 +171,20 @@ public final class ReportPreview {
 			failures.add("hit spread sums to " + spread + ", not 100");
 		}
 
+		if (s.missPick + s.missKb + s.missCrit + s.missSweep + s.missPlain != s.missed) {
+			failures.add("miss types do not add up to the missed count");
+		}
+
+		double missSpread = s.missPickPct + s.missKbPct + s.missCritPct + s.missSweepPct + s.missPlainPct;
+
+		if (Math.abs(missSpread - 100.0) > 0.001) {
+			failures.add("miss spread sums to " + missSpread + ", not 100");
+		}
+
+		if (s.pickThrown + s.kbThrown + s.critThrown + s.sweepThrown + s.plainThrown != s.swings) {
+			failures.add("thrown counts do not add up to the swing count");
+		}
+
 		// The band is the whole point of reporting a range rather than a figure, so
 		// it had better contain the average it was built from.
 		if (s.avgReach < s.rangeLo || s.avgReach > s.rangeHi) {
@@ -218,13 +234,21 @@ public final class ReportPreview {
 		d.startUtc = "2026-01-01 00:00:00";
 		d.opponentHealthSeen = true;
 
-		// Four swings, two landed at 2.0 and 3.0 blocks.
-		// Accuracy 50%. Average reach 2.5. Band floor((2.5-0.15)*10)/10 = 2.3 to 2.6.
-		// One landed hit is past 2.9, so 3 block accuracy is 50%.
+		// Six swings, two landed at 2.0 and 3.0 blocks.
+		// Accuracy 2/6 = 33.3%. Average reach 2.5. Band floor((2.5-0.15)*10)/10 = 2.3.
+		// One landed hit is past 2.9, so 3 block accuracy is 50% of the two landed.
+		//
+		// The four misses are 2 pick, 1 kb, 1 crit -- so the miss spread is
+		// 50/25/25/0/0, and the per-type land rates come out as:
+		//   pick  0 landed of 2 thrown = 0%
+		//   kb    1 landed of 2 thrown = 50%
+		//   crit  1 landed of 2 thrown = 50%
 		d.swings.add(swing(0L, true, 2.0, "KB"));
-		d.swings.add(swing(100L, false, 3.4, null));
+		d.swings.add(swing(100L, false, 3.4, "PICK"));
 		d.swings.add(swing(200L, true, 3.0, "CRIT"));
-		d.swings.add(swing(300L, false, 4.0, null));
+		d.swings.add(swing(300L, false, 4.0, "PICK"));
+		d.swings.add(swing(400L, false, 3.6, "KB"));
+		d.swings.add(swing(500L, false, 3.8, "CRIT"));
 
 		// Hits of 1, 2, 3 and 4. Only the last three are combos: 3 combos, 9 hits,
 		// average 3.0, and one lone hit kept out of that average.
@@ -255,11 +279,35 @@ public final class ReportPreview {
 		ReportStats.summarise(d);
 		ReportData.Summary s = d.summary;
 
-		expect(failures, "accuracy", 50.0, s.accuracyPct);
+		expect(failures, "accuracy", 100.0 * 2.0 / 6.0, s.accuracyPct);
+		expect(failures, "missed", 4.0, s.missed);
+
+		expect(failures, "missed pick", 2.0, s.missPick);
+		expect(failures, "missed kb", 1.0, s.missKb);
+		expect(failures, "missed crit", 1.0, s.missCrit);
+		expect(failures, "missed sweep", 0.0, s.missSweep);
+		expect(failures, "missed plain", 0.0, s.missPlain);
+
+		expect(failures, "missed pick share", 50.0, s.missPickPct);
+		expect(failures, "missed kb share", 25.0, s.missKbPct);
+		expect(failures, "missed crit share", 25.0, s.missCritPct);
+
+		expect(failures, "pick thrown", 2.0, s.pickThrown);
+		expect(failures, "kb thrown", 2.0, s.kbThrown);
+		expect(failures, "crit thrown", 2.0, s.critThrown);
+
+		expect(failures, "pick land rate", 0.0, s.pickLandPct);
+		expect(failures, "kb land rate", 50.0, s.kbLandPct);
+		expect(failures, "crit land rate", 50.0, s.critLandPct);
+		// Nothing of this type was thrown, so the rate stays zero rather than
+		// dividing by nothing - the report prints "none thrown" for it.
+		expect(failures, "sweep land rate", 0.0, s.sweepLandPct);
+		expect(failures, "sweep thrown", 0.0, s.sweepThrown);
 		expect(failures, "average reach", 2.5, s.avgReach);
 		expect(failures, "range low", 2.3, s.rangeLo);
 		expect(failures, "range high", 2.6, s.rangeHi);
 		expect(failures, "3 block accuracy", 50.0, s.threeBlockPct);
+		expect(failures, "landed hits still only two", 2.0, s.landed);
 		expect(failures, "kb share", 50.0, s.kbPct);
 		expect(failures, "crit share", 50.0, s.critPct);
 
@@ -375,6 +423,12 @@ public final class ReportPreview {
 		System.out.printf(Locale.ROOT,
 				"  spread   pick %.1f%%  kb %.1f%%  crit %.1f%%  sweep %.1f%%  plain %.1f%%%n",
 				s.pickPct, s.kbPct, s.critPct, s.sweepPct, s.plainPct);
+		System.out.printf(Locale.ROOT,
+				"  misses   pick %.1f%%  kb %.1f%%  crit %.1f%%  sweep %.1f%%  plain %.1f%%%n",
+				s.missPickPct, s.missKbPct, s.missCritPct, s.missSweepPct, s.missPlainPct);
+		System.out.printf(Locale.ROOT,
+				"  land %%   pick %.0f  kb %.0f  crit %.0f  sweep %.0f  plain %.0f%n",
+				s.pickLandPct, s.kbLandPct, s.critLandPct, s.sweepLandPct, s.plainLandPct);
 		System.out.printf(Locale.ROOT,
 				"  combos   %.2f per combo (%d combos, %d lone hits), taken %.2f (%d combos, %d lone), every %.2fs%n",
 				s.avgComboHits, s.combos, s.singleHits,
