@@ -129,6 +129,7 @@ public final class ReportPreview {
 			}
 
 			j.deflected = rng.nextDouble() < 0.21;
+			j.inCombat = true;
 			d.jumps.add(j);
 		}
 
@@ -223,11 +224,15 @@ public final class ReportPreview {
 		d.combosDealt.add(combo(3_000L, 3_500L, 3));
 		d.combosDealt.add(combo(5_500L, 6_000L, 4));
 
-		// Three jumps: one reset inside the window, one attempt too late, one that
-		// was not an attempt at all but was punished in the air.
-		d.jumps.add(jump(0L, true, 40L, true, false));
-		d.jumps.add(jump(1_000L, true, 150L, false, false));
-		d.jumps.add(jump(2_000L, false, 0L, false, true));
+		// Three jumps that count: one reset inside the window, one attempt too late,
+		// and one that was not an attempt at all but was punished in the air.
+		d.jumps.add(jump(0L, true, 40L, true, false, true));
+		d.jumps.add(jump(1_000L, true, 150L, false, false, true));
+		d.jumps.add(jump(2_000L, false, 0L, false, true, true));
+
+		// ...and one thrown while idle between fights, which must be removed rather
+		// than diluting the punishment rate. This is the "empty parts" filter.
+		d.jumps.add(jump(3_000L, false, 0L, false, false, false));
 
 		// Four trades: one won, one lost, one even, and one where the opponent was
 		// never seen to lose health. The even one and the unmeasured one are both
@@ -255,7 +260,9 @@ public final class ReportPreview {
 		expect(failures, "combo gaps", 2.0, s.comboGaps);
 		expect(failures, "combo frequency", 1500.0, s.comboFrequencyMs);
 
-		expect(failures, "jumps", 3.0, s.jumps);
+		// Four jumps recorded, three counted - the idle one is trimmed.
+		expect(failures, "jumps recorded", 4.0, d.jumps.size());
+		expect(failures, "jumps counted", 3.0, s.jumps);
 		expect(failures, "reset attempts", 2.0, s.resetAttempts);
 		expect(failures, "reset accuracy", 50.0, s.resetPct);
 		expect(failures, "average reset timing", 95.0, s.avgResetDeltaMs);
@@ -291,13 +298,15 @@ public final class ReportPreview {
 		return c;
 	}
 
-	private static ReportData.Jump jump(long t, boolean attempt, long delta, boolean reset, boolean deflected) {
+	private static ReportData.Jump jump(long t, boolean attempt, long delta, boolean reset,
+			boolean deflected, boolean inCombat) {
 		ReportData.Jump j = new ReportData.Jump();
 		j.t = t;
 		j.attempt = attempt;
 		j.deltaMs = delta;
 		j.reset = reset;
 		j.deflected = deflected;
+		j.inCombat = inCombat;
 		return j;
 	}
 

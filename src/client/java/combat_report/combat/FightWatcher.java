@@ -17,11 +17,18 @@ import java.util.UUID;
 /**
  * The state machine that decides what counts as a fight, and feeds everything else.
  *
- * <p>Nothing outside a fight is measured. A recording that runs for twenty minutes
- * across four duels holds four fights' worth of data and none of the walking
- * between them, which is the whole point of the segmentation: a figure like combo
- * frequency is meaningless if the denominator includes three minutes spent picking
- * your gear back up.
+ * <p><b>A recording never stops on its own.</b> It runs from the moment you press
+ * record until you press stop (or leave the server, which saves rather than
+ * discards). What this class does is mark which stretches of that one continuous
+ * recording were combat, so the idle stretches can be left out of the numbers - a
+ * figure like combo frequency is meaningless if the denominator includes three
+ * minutes spent walking back and picking your gear up.
+ *
+ * <p>Nothing is dropped at capture time because of the fight state. Events are
+ * recorded as they happen and the idle ones are removed when the report is
+ * summarised, which is the only order that works: a jump thrown a fraction of a
+ * second before the opening hit of a fight is a reset attempt, and at the instant
+ * it happens no fight has started yet.
  *
  * <p>A fight opens on the first combat event against a player - a swing thrown at
  * them, or a hit taken from them - and closes {@link Constants#FIGHT_IDLE_MS} after
@@ -257,9 +264,16 @@ public final class FightWatcher {
 		this.trades.onHitTaken(attacker.getUUID(), now);
 	}
 
-	/** LivingEntity.jumpFromGround: a real jump, not upward velocity from knockback. */
+	/**
+	 * LivingEntity.jumpFromGround: a real jump, not upward velocity from knockback.
+	 *
+	 * <p>Captured whether or not combat is active. Whether it counts is decided when
+	 * the report is summarised, because it cannot be decided here: a jump thrown a
+	 * fraction of a second before the opening hit of a fight is a reset attempt, and
+	 * at the moment it happens no fight has started yet.
+	 */
 	public void onJump(LivingEntity who) {
-		if (!isRecording() || !this.inFight) {
+		if (!isRecording()) {
 			return;
 		}
 
@@ -267,7 +281,7 @@ public final class FightWatcher {
 			return;
 		}
 
-		this.jumps.onJump(System.currentTimeMillis());
+		this.jumps.onJump(System.currentTimeMillis(), this.inFight);
 	}
 
 	// ---- per-tick -----------------------------------------------------------

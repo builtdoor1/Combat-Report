@@ -158,11 +158,19 @@ public final class ReportStats {
 	// ---- Section 3: jumps ---------------------------------------------------
 
 	private static void jumps(ReportData d, ReportData.Summary s) {
-		s.jumps = d.jumps.size();
-
 		long deltaSum = 0L;
 
 		for (ReportData.Jump j : d.jumps) {
+			// This is where the empty parts of a recording are removed. Jumping
+			// around a lobby between fights is not combat and must not dilute the
+			// punishment rate, but a jump that a hit arrived next to is combat even
+			// if no fight had opened when it was thrown.
+			if (!j.inCombat && !j.attempt) {
+				continue;
+			}
+
+			s.jumps++;
+
 			if (j.attempt) {
 				s.resetAttempts++;
 				deltaSum += j.deltaMs;

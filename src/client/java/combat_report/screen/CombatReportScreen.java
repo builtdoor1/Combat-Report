@@ -161,12 +161,12 @@ public class CombatReportScreen extends Screen {
 
 	private Component statusLine() {
 		if (!SessionRecorder.get().isRecording()) {
-			return Component.literal("Not recording. Only time inside a fight is measured.");
+			return Component.literal("Not recording. Idle time is trimmed from the report, not the recording.");
 		}
 
 		return Component.literal(FightWatcher.get().inFight()
-				? "Recording, in a fight."
-				: "Recording, waiting for a fight.");
+				? "Recording - in combat."
+				: "Recording - out of combat, this stretch will be trimmed.");
 	}
 
 	private int statusColour() {

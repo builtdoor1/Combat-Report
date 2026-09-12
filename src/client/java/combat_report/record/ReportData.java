@@ -85,9 +85,17 @@ public final class ReportData {
 		public int opponent = -1;
 	}
 
-	/** One jump taken during a fight. */
+	/** One jump taken during the recording. */
 	public static final class Jump {
 		public long t;
+		/**
+		 * Whether combat was active when this jump happened. Jumps are captured
+		 * throughout the recording and the idle ones are dropped at summary time,
+		 * rather than never being captured - otherwise a reset thrown a moment
+		 * before the opening hit of a fight would be lost, which is exactly the
+		 * jump most worth seeing.
+		 */
+		public boolean inCombat;
 		/** True if this jump was close enough to a hit taken to be a reset attempt. */
 		public boolean attempt;
 		/** Milliseconds from the hit to the jump. Negative means the jump came first. */

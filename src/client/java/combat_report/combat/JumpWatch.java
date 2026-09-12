@@ -23,6 +23,10 @@ import java.util.function.Consumer;
  *       land, so the jump stays open until then.</li>
  * </ul>
  *
+ * <p>Every jump made during the recording is captured, in combat or not. The idle
+ * ones are dropped when the report is summarised rather than never recorded, so a
+ * reset thrown a fraction of a second before the first hit of a fight still counts.
+ *
  * <p>A jump is emitted once both questions are settled: it has landed, and its
  * attempt window has expired.
  */
@@ -42,9 +46,10 @@ public final class JumpWatch {
 		boolean airborne = true;
 	}
 
-	public void onJump(long nowMs) {
+	public void onJump(long nowMs, boolean inCombat) {
 		Pending p = new Pending();
 		p.jump.t = nowMs;
+		p.jump.inCombat = inCombat;
 
 		// A hit just before this jump makes it a reset attempt.
 		if (this.lastHitTakenMs != Long.MIN_VALUE && nowMs - this.lastHitTakenMs <= Constants.JUMP_ATTEMPT_MS) {
@@ -61,9 +66,12 @@ public final class JumpWatch {
 		this.lastHitTakenMs = nowMs;
 
 		for (Pending p : this.pending) {
-			// A hit landing while you are still in the air is a punished jump.
+			// A hit landing while you are still in the air is a punished jump - and
+			// being hit mid-air is combat whatever the fight state said when the jump
+			// was thrown, so the jump counts even if it started as an idle one.
 			if (p.airborne) {
 				p.jump.deflected = true;
+				p.jump.inCombat = true;
 			}
 
 			// A hit arriving just after a jump makes that jump a mistimed attempt:
@@ -72,6 +80,12 @@ public final class JumpWatch {
 				p.jump.attempt = true;
 				p.jump.deltaMs = p.jump.t - nowMs;
 				p.jump.reset = false;
+
+				// A hit landing this close means combat had started by the time the
+				// jump mattered, even if the fight had not opened when it was thrown.
+				// That is the pre-emptive reset at the start of a fight, and it is a
+				// real attempt, not empty time.
+				p.jump.inCombat = true;
 			}
 		}
 	}

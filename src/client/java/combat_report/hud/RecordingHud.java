@@ -12,10 +12,10 @@ import java.util.Locale;
 /**
  * A small indicator while a recording is running.
  *
- * <p>It says two things, and the second one matters more than it looks: whether the
- * recording is running, and whether the mod currently thinks you are in a fight.
- * Only time inside a fight is measured, so seeing that state is the difference
- * between trusting the report and wondering why it is empty.
+ * <p>It says two things: that the recording is running, and whether the mod
+ * currently counts you as in combat. The second is worth showing because idle
+ * stretches are trimmed out of the report - but the recording itself never pauses,
+ * and the wording is chosen so it does not read as though it has.
  */
 public final class RecordingHud {
 
@@ -40,7 +40,7 @@ public final class RecordingHud {
 
 		boolean inFight = FightWatcher.get().inFight();
 		Component line = Component.literal("REC " + timer(SessionRecorder.get().elapsedMs()));
-		Component state = Component.literal(inFight ? "in fight" : "waiting for a fight");
+		Component state = Component.literal(inFight ? "in combat" : "out of combat - idle time trimmed");
 
 		int x = 6;
 		int y = 6;

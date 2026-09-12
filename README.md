@@ -11,7 +11,11 @@ A client-side [Fabric](https://fabricmc.net/) mod for **Minecraft 1.21.11**. Hit
 
 It never touches your gameplay. It cannot help you aim, reach further, click faster or reset better. It only watches and writes down what already happened.
 
-**It does not record between fights.** A fight starts when you swing at another player or take a hit from one, and ends eight seconds after the last hit either way. Everything else — walking back, gearing up, waiting in queue — is thrown away before any statistic is computed. That matters most for the time-based figures: combo frequency measured across a lobby wait is not a number about you.
+**A recording never stops on its own.** It runs from the moment you press record until you press stop — one continuous session, however many fights are in it. Leaving the server saves it rather than throwing it away.
+
+**The empty parts are trimmed from the numbers, not from the recording.** Combat is considered active from the moment you swing at another player or take a hit from one until eight seconds after the last hit either way. Everything outside that — walking back, gearing up, waiting in queue — is removed when the report is summarised, so it never reaches a statistic. That matters most for the time-based figures: combo frequency measured across a lobby wait is not a number about you.
+
+Events are captured continuously and filtered afterwards, which is the only order that works. A jump thrown a fraction of a second *before* the opening hit of a fight is a reset attempt, and at the instant it happens no fight has started yet — dropping it at capture time would lose exactly the jump most worth seeing.
 
 ---
 
@@ -63,9 +67,11 @@ Isolated single hits are **not** averaged in as one-hit combos. Counting them wo
 |---|---|
 | **Jump reset accuracy** | Of jumps timed close to a hit, the share that landed in the 0–80 ms window |
 | **Average timing** | How long after the hit you jumped; negative means you jumped early |
-| **Jump punishment** | Share of all your jumps where they hit you before you touched the ground |
+| **Jump punishment** | Share of your jumps in combat where they hit you before you touched the ground |
 
-A jump more than 200 ms from a hit is **not scored at all** rather than counted as a miss. A jump a fifth of a second either side of taking damage is just a jump that happened nearby, and scoring it drags the average around.
+A jump more than 200 ms from a hit is **not scored as a reset attempt** rather than counted as a failed one. A jump a fifth of a second either side of taking damage is just a jump that happened nearby, and scoring it drags the average around. It still counts toward the punishment rate if it happened in combat.
+
+Jumps made while out of combat are dropped entirely — with two exceptions, both of which are combat by definition even though no fight had opened when the jump was thrown: a hit arriving within the attempt window, and a hit landing on you while you are still in the air.
 
 ### 4 · Momentum and trades
 
@@ -107,14 +113,14 @@ No config library needed — the settings live on the mod's own screen.
 Press **`K`** to open the Combat Report screen. From there:
 
 - **Start / Stop Recording** — the big button. It shows a running timer while recording.
-- The status line says whether the mod currently thinks you are **in a fight**. Worth watching: only time inside a fight is measured, so this is the difference between trusting a report and wondering why it is empty.
+- The status line says whether the mod currently counts you as **in combat**. The recording does not pause when it says otherwise — it keeps running, and that stretch is trimmed out of the report at the end.
 - **The list** shows every report you have saved. Click one and press **Open report**, or double-click it, to open it in your browser.
 - **Open reports folder** takes you straight to the files.
 - **HUD / Chat / Auto-open** are the only three settings.
 
 You can also bind **Start/Stop Recording** to its own key under *Options → Controls → Combat Report*. It is unbound by default, because starting a recording by accident mid-fight is worse than binding a key once.
 
-While recording, a small `REC 1:24` indicator sits in the top-left with the in-fight state under it.
+While recording, a small `REC 1:24` indicator sits in the top-left with the combat state under it.
 
 Leaving a server mid-recording stops and saves it rather than throwing it away.
 
