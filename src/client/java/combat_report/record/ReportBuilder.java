@@ -9,9 +9,11 @@ import java.util.Locale;
 /**
  * Renders a finished recording as one self-contained HTML page.
  *
- * <p>Everything is inline: the stylesheet, the charts as hand-emitted SVG, and no
- * script at all. The file opens in a browser with no internet connection and
- * fetches nothing, which is what makes it something you can hand to someone.
+ * <p>Everything is inline: the stylesheet, the charts as hand-emitted SVG, and a
+ * dozen lines of script for the hover tooltips. The file opens in a browser with no
+ * internet connection and fetches nothing, which is what makes it something you can
+ * hand to someone. With scripting off it still renders in full, and every mark
+ * keeps a {@code <title>} so the browser's own tooltip takes over.
  *
  * <p>Game-free (see {@link ReportData}), so {@code ./gradlew reportPreview} can
  * render one from synthetic data and the page can be checked without Minecraft.
@@ -66,8 +68,56 @@ public final class ReportBuilder {
 				.append(" &middot; measured on the client, so reach and timing are what your game saw, ")
 				.append("not what the server did.</footer>");
 
-		h.append("</main></body></html>");
+		h.append("</main><script>").append(hoverScript()).append("</script></body></html>");
 		return h.toString();
+	}
+
+	/**
+	 * Fast tooltips, and the link between the two jump panels.
+	 *
+	 * <p>The SVG marks carry a {@code <title>} as well, so the report still explains
+	 * itself with scripting turned off - just with the browser's own sluggish native
+	 * tooltip. When this runs it strips those titles out, otherwise both would fire
+	 * and the native one would arrive a second later on top of ours.
+	 *
+	 * <p>Nothing here is fetched. It is a dozen lines of event delegation on a page
+	 * that still opens with no network at all.
+	 */
+	private static String hoverScript() {
+		return """
+				for (const box of document.querySelectorAll('.chartbox')) {
+				  const tip = box.querySelector('.tip');
+				  for (const t of box.querySelectorAll('[data-tip] > title')) t.remove();
+				  let held = null;
+				  const clear = () => {
+				    if (held === null) return;
+				    for (const m of box.querySelectorAll('.hi')) m.classList.remove('hi');
+				    held = null;
+				  };
+				  box.addEventListener('mousemove', e => {
+				    const el = e.target.closest('[data-tip]');
+				    if (!el) { tip.hidden = true; clear(); return; }
+				    tip.textContent = el.getAttribute('data-tip');
+				    tip.hidden = false;
+				    const r = box.getBoundingClientRect();
+				    let x = e.clientX - r.left + 14;
+				    let y = e.clientY - r.top - tip.offsetHeight - 12;
+				    x = Math.max(6, Math.min(x, r.width - tip.offsetWidth - 6));
+				    if (y < 4) y = e.clientY - r.top + 18;
+				    tip.style.left = x + 'px';
+				    tip.style.top = y + 'px';
+				    const id = el.getAttribute('data-jump');
+				    if (id !== held) {
+				      clear();
+				      if (id !== null) {
+				        for (const m of box.querySelectorAll('[data-jump="' + id + '"]')) m.classList.add('hi');
+				        held = id;
+				      }
+				    }
+				  });
+				  box.addEventListener('mouseleave', () => { tip.hidden = true; clear(); });
+				}
+				""";
 	}
 
 	// ---- header -------------------------------------------------------------
@@ -208,8 +258,7 @@ public final class ReportBuilder {
 			max = Math.max(max, sw.reach + 0.2);
 		}
 
-		h.append("<div class=\"chartwrap\">");
-		svgOpen(h, w, hgt);
+		chartOpen(h, w, hgt);
 		axes(h, ml, mt, pw, ph);
 
 		// Y gridlines every half block.
@@ -240,14 +289,16 @@ public final class ReportBuilder {
 			int y = (int) Math.round(mt + ph - sw.reach / max * ph);
 			String colour = sw.landed ? GOOD : BAD;
 
+			String tip = (sw.landed ? "landed" : "missed") + " at " + num(sw.reach, 2) + " blocks"
+					+ (sw.type == null ? "" : " (" + label(sw.type) + ")");
+
 			h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
-					.append("\" r=\"3\" fill=\"").append(colour).append("\" fill-opacity=\"0.85\"><title>")
-					.append(sw.landed ? "landed" : "missed").append(" at ").append(num(sw.reach, 2))
-					.append(" blocks").append(sw.type == null ? "" : " (" + label(sw.type) + ")")
-					.append("</title></circle>");
+					.append("\" r=\"3\" fill=\"").append(colour)
+					.append("\" fill-opacity=\"0.85\" data-tip=\"").append(esc(tip))
+					.append("\"><title>").append(esc(tip)).append("</title></circle>");
 		}
 
-		h.append("</svg></div>");
+		chartClose(h);
 	}
 
 	// ---- section 2: combos --------------------------------------------------
@@ -330,6 +381,10 @@ public final class ReportBuilder {
 					.append("before landing. The share of the strip that is red <i>is</i> the ")
 					.append(num(s.deflectedPct, 1)).append("% above. Attempts are a subset of these, ")
 					.append("so the two panels do not hold the same number of marks.</p>");
+			h.append("<p class=\"sub\">Hover any mark for that jump's timing and how it ended. ")
+					.append("A jump that appears on both panels lights up on both at once, so you can ")
+					.append("see where a punished jump sat on the timing axis - and a jump that lights ")
+					.append("up alone is one with no hit close enough to have a timing at all.</p>");
 		}
 
 		h.append("</section>");
@@ -363,8 +418,7 @@ public final class ReportBuilder {
 
 		long span = Constants.JUMP_ATTEMPT_MS;
 
-		h.append("<div class=\"chartwrap\">");
-		svgOpen(h, w, hgt);
+		chartOpen(h, w, hgt);
 
 		// ---- top panel: when each attempt was thrown ------------------------
 		h.append("<text x=\"").append(ml).append("\" y=\"").append(topLabelY)
@@ -385,42 +439,55 @@ public final class ReportBuilder {
 					.append("\" class=\"ax\" text-anchor=\"middle\">").append(v).append("</text>");
 		}
 
-		List<ReportData.Jump> attempts = new ArrayList<>();
 		List<ReportData.Jump> counted = new ArrayList<>();
 
 		for (ReportData.Jump j : d.jumps) {
-			if (!j.counted()) {
-				continue;
-			}
-
-			counted.add(j);
-
-			if (j.attempt) {
-				attempts.add(j);
+			if (j.counted()) {
+				counted.add(j);
 			}
 		}
 
-		int n = attempts.size();
+		int total = counted.size();
+		int n = 0;
 
-		for (int i = 0; i < n; i++) {
-			ReportData.Jump j = attempts.get(i);
+		for (ReportData.Jump j : counted) {
+			if (j.attempt) {
+				n++;
+			}
+		}
+
+		// The index is into the counted list, not the attempt list, so a mark in one
+		// panel and its twin in the other carry the same data-jump and light up
+		// together on hover. That is the point of showing both panels at once: you
+		// can see where a punished jump sat on the timing axis.
+		int placed = 0;
+
+		for (int i = 0; i < total; i++) {
+			ReportData.Jump j = counted.get(i);
+
+			if (!j.attempt) {
+				continue;
+			}
+
 			int x = msToX(j.deltaMs, span, ml, pw);
-			double fy = n <= 1 ? 0.5 : (double) i / (n - 1);
+			double fy = n <= 1 ? 0.5 : (double) placed / (n - 1);
 			int y = (int) Math.round(topY + 10 + fy * (topH - 20));
+			placed++;
+
+			String tip = jumpTip(j, i, total);
 
 			h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
 					.append("\" r=\"4\" fill=\"").append(j.reset ? GOOD : BAD)
-					.append("\" fill-opacity=\"0.85\"><title>").append(j.deltaMs).append(" ms - ")
-					.append(j.reset ? "reset" : (j.deltaMs < 0 ? "too early" : "too late"))
-					.append(j.deflected ? ", punished in the air" : "")
-					.append("</title></circle>");
+					.append("\" fill-opacity=\"0.85\" data-jump=\"").append(i)
+					.append("\" data-tip=\"").append(esc(tip)).append("\"><title>")
+					.append(esc(tip)).append("</title></circle>");
 
 			// A ring rather than a third colour: the fill already carries whether the
 			// timing worked, and punishment is a separate question about the same jump.
 			if (j.deflected) {
 				h.append("<circle cx=\"").append(x).append("\" cy=\"").append(y)
 						.append("\" r=\"7.5\" fill=\"none\" stroke=\"").append(MUTED)
-						.append("\" stroke-width=\"1.5\"/>");
+						.append("\" stroke-width=\"1.5\" pointer-events=\"none\"/>");
 			}
 		}
 
@@ -438,7 +505,6 @@ public final class ReportBuilder {
 				.append("\" width=\"").append(pw).append("\" height=\"").append(stripH)
 				.append("\" fill=\"").append(BG).append("\" fill-opacity=\"0.5\" rx=\"4\"/>");
 
-		int total = counted.size();
 		double slot = (double) pw / Math.max(1, total);
 		double barW = Math.max(2.0, Math.min(10.0, slot * 0.6));
 		int midY = stripY + stripH / 2;
@@ -448,17 +514,46 @@ public final class ReportBuilder {
 			double cx = ml + slot * (i + 0.5);
 			int barH = j.deflected ? 30 : 12;
 			double y = midY - barH / 2.0;
+			String tip = jumpTip(j, i, total);
+
+			// A full-height invisible rect the width of the whole slot sits behind
+			// each bar, so a two-pixel mark on a long session is still easy to hit
+			// with the cursor. Without it the strip is interactive in principle and
+			// not in practice.
+			h.append("<rect x=\"").append(num(cx - slot / 2.0, 2))
+					.append("\" y=\"").append(stripY).append("\" width=\"").append(num(slot, 2))
+					.append("\" height=\"").append(stripH).append("\" fill=\"transparent\" data-jump=\"")
+					.append(i).append("\" data-tip=\"").append(esc(tip)).append("\"><title>")
+					.append(esc(tip)).append("</title></rect>");
 
 			h.append("<rect x=\"").append(num(cx - barW / 2.0, 2)).append("\" y=\"").append(num(y, 2))
 					.append("\" width=\"").append(num(barW, 2)).append("\" height=\"").append(barH)
-					.append("\" rx=\"1\" fill=\"").append(j.deflected ? BAD : MUTED)
-					.append("\" fill-opacity=\"").append(j.deflected ? "0.9" : "0.45").append("\"><title>")
-					.append(j.deflected ? "punished - hit before landing" : "landed cleanly")
-					.append(j.attempt ? ", reset attempt " + j.deltaMs + " ms" : "")
-					.append("</title></rect>");
+					.append("\" rx=\"1\" pointer-events=\"none\" fill=\"").append(j.deflected ? BAD : MUTED)
+					.append("\" fill-opacity=\"").append(j.deflected ? "0.9" : "0.45").append("\"/>");
 		}
 
-		h.append("</svg></div>");
+		chartClose(h);
+	}
+
+	/**
+	 * The whole story of one jump, shown on whichever panel you hover.
+	 *
+	 * <p>The same text on both marks on purpose. From the strip you want to know the
+	 * timing you cannot see there; from the timing panel you want to know whether it
+	 * was punished, which the ring only hints at.
+	 */
+	private static String jumpTip(ReportData.Jump j, int index, int total) {
+		StringBuilder t = new StringBuilder(64);
+		t.append("jump ").append(index + 1).append(" of ").append(total).append(" - ");
+
+		if (j.attempt) {
+			t.append(j.reset ? "reset" : (j.deltaMs < 0L ? "too early" : "too late"))
+					.append(", ").append(j.deltaMs >= 0L ? "+" : "").append(j.deltaMs).append(" ms");
+		} else {
+			t.append("no hit nearby, not a reset attempt");
+		}
+
+		return t.append(j.deflected ? " - punished in the air" : " - landed cleanly").toString();
 	}
 
 	private static int msToX(long ms, long span, int ml, int pw) {
@@ -533,8 +628,7 @@ public final class ReportBuilder {
 		max = Math.ceil(max / 50.0) * 50.0;
 		int zeroY = mt + ph / 2;
 
-		h.append("<div class=\"chartwrap\">");
-		svgOpen(h, w, hgt);
+		chartOpen(h, w, hgt);
 
 		for (double v = -max; v <= max + 0.001; v += max / 2.0) {
 			int y = (int) Math.round(zeroY - v / max * (ph / 2.0));
@@ -560,14 +654,17 @@ public final class ReportBuilder {
 			double hh = Math.abs(clamped) / max * (ph / 2.0);
 			double y = clamped >= 0 ? zeroY - hh : zeroY;
 
+			String tip = signed(t.momentumPct) + " of sprint speed, "
+					+ (t.momentumPct >= 0.0 ? "pushing forward" : "backing off");
+
 			h.append("<rect x=\"").append(num(cx - barW / 2.0, 2)).append("\" y=\"").append(num(y, 2))
 					.append("\" width=\"").append(num(barW, 2)).append("\" height=\"").append(num(Math.max(1.0, hh), 2))
-					.append("\" fill=\"").append(clamped >= 0 ? GOOD : BAD).append("\" fill-opacity=\"0.85\"><title>")
-					.append(signed(t.momentumPct)).append(" of sprint speed")
-					.append("</title></rect>");
+					.append("\" fill=\"").append(clamped >= 0 ? GOOD : BAD)
+					.append("\" fill-opacity=\"0.85\" data-tip=\"").append(esc(tip))
+					.append("\"><title>").append(esc(tip)).append("</title></rect>");
 		}
 
-		h.append("</svg></div>");
+		chartClose(h);
 	}
 
 	// ---- small pieces -------------------------------------------------------
@@ -576,6 +673,23 @@ public final class ReportBuilder {
 		h.append("<div class=\"card\"><div class=\"lab\">").append(label)
 				.append("</div><div class=\"val\">").append(value)
 				.append("</div><div class=\"note\">").append(note).append("</div></div>");
+	}
+
+	/**
+	 * Opens a chart: an outer box that the tooltip is positioned against, and an
+	 * inner scroller that holds the SVG.
+	 *
+	 * <p>The tooltip has to live outside the scroller. Setting {@code overflow-x} on
+	 * the inner div makes {@code overflow-y} compute to auto as well, so a tooltip
+	 * placed in there would be clipped by the chart's own top edge.
+	 */
+	private static void chartOpen(StringBuilder h, int w, int hgt) {
+		h.append("<div class=\"chartbox\"><div class=\"chartwrap\">");
+		svgOpen(h, w, hgt);
+	}
+
+	private static void chartClose(StringBuilder h) {
+		h.append("</svg></div><div class=\"tip\" hidden></div></div>");
 	}
 
 	private static void svgOpen(StringBuilder h, int w, int hgt) {
@@ -685,7 +799,14 @@ public final class ReportBuilder {
 				.lg em{color:%MUTED%;font-style:normal;font-size:12.5px;flex-basis:100%;
 				margin-left:17px;margin-top:-3px}
 				.sw{width:10px;height:10px;border-radius:3px;flex:none;transform:translateY(1px)}
-				.chartwrap{margin:12px 0 4px;overflow-x:auto}
+				.chartbox{position:relative;margin:12px 0 4px}
+				.chartwrap{overflow-x:auto}
+				.tip{position:absolute;pointer-events:none;z-index:5;background:%PANEL%;
+				border:1px solid %LINE%;border-radius:6px;padding:5px 9px;font-size:12.5px;
+				color:%INK%;white-space:nowrap;box-shadow:0 2px 10px rgba(0,0,0,.45)}
+				.tip[hidden]{display:none}
+				svg.chart [data-tip]{cursor:crosshair}
+				svg.chart .hi{stroke:%INK%;stroke-width:2}
 				svg.chart{display:block;background:%PANEL%;border:1px solid %LINE%;border-radius:10px}
 				text.ax{fill:%MUTED%;font-size:11px;font-family:system-ui,sans-serif}
 				.vs2{margin:12px 0}
